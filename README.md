@@ -44,9 +44,22 @@
 | [16 Roadmap](docs/16_ROADMAP.md) | Phase별 순서 |
 | [17 Non-Goals](docs/17_NON_GOALS.md) | 하지 않을 것 |
 
+## 시작하기
+
+[DEVELOPMENT.md](DEVELOPMENT.md) 참조.
+
+```bash
+uv venv --python 3.12 && uv pip install -e ".[dev]" && cp .env.example .env
+```
+
+```bash
+docker compose up -d db && alembic upgrade head && crwallm serve
+```
+
 ## 상태
 
-Phase 0 (Foundation) 진행 중. → [로드맵](docs/16_ROADMAP.md)
+**Phase 0 — Foundation 완료.** 다음은 Phase 1 (Contracts & Policy).
+→ [로드맵](docs/16_ROADMAP.md)
 
 ## 전제
 

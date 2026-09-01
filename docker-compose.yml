@@ -1,0 +1,56 @@
+name: crwallm
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: crwallm
+      POSTGRES_PASSWORD: crwallm
+      POSTGRES_DB: crwallm
+    # Bulk crawl writes are append-heavy and a crash may lose the last few
+    # seconds of results. That is an acceptable trade for a personal crawler.
+    # docs/12_PERFORMANCE.md §A③
+    command: >
+      postgres
+      -c synchronous_commit=off
+      -c max_connections=100
+      -c shared_buffers=256MB
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crwallm -d crwallm"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      CRWALLM_DATABASE_URL: postgresql+asyncpg://crwallm:crwallm@db:5432/crwallm
+      CRWALLM_API_HOST: 0.0.0.0   # container-internal; published to 127.0.0.1 only
+      CRWALLM_API_TOKEN: ${CRWALLM_API_TOKEN:?set CRWALLM_API_TOKEN in .env}
+      CRWALLM_ENV: ${CRWALLM_ENV:-dev}
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./src:/app/src
+      - ./recipes:/app/recipes
+      - ./data:/app/data
+    command: python -m crwallm.main
+
+  # Phase 2. Runs in Linux so uvloop applies (docs/12_PERFORMANCE.md §A④).
+  # worker:
+  #   build: .
+  #   depends_on: [db]
+  #   environment:
+  #     CRWALLM_DATABASE_URL: postgresql+asyncpg://crwallm:crwallm@db:5432/crwallm
+  #   volumes: [./src:/app/src, ./data:/app/data]
+  #   command: python -m crwallm.jobs.worker
+
+volumes:
+  pgdata:

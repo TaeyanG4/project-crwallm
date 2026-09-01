@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: crwallm
+          POSTGRES_PASSWORD: crwallm
+          POSTGRES_DB: crwallm_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U crwallm"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      CRWALLM_DATABASE_URL: postgresql+asyncpg://crwallm:crwallm@localhost:5432/crwallm_test
+      CRWALLM_API_TOKEN: ci-token
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install
+        run: uv pip install --system -e ".[dev]"
+
+      - name: Lint
+        run: |
+          ruff check .
+          ruff format --check .
+
+      - name: Type check
+        run: mypy src
+
+      - name: Test
+        run: pytest
+
+      - name: Migrations apply cleanly
+        run: alembic upgrade head

@@ -1,0 +1,49 @@
+# 모델 카탈로그 — 코드 밖에 둔다 (docs/08_LLM_ARCHITECTURE.md)
+# 모델 판도가 빠르게 바뀌므로 여기만 갱신하면 된다.
+
+[[model]]
+name        = "qwen3:4b"
+tasks       = ["compile_spec", "classify"]
+min_vram_gb = 4
+size_gb     = 2.5
+quant       = "Q4_K_M"
+note        = "저사양/CPU 폴백. adaptation은 API로 라우팅 권장"
+
+[[model]]
+name        = "qwen3:8b"
+tasks       = ["compile_spec", "classify", "adapt_selectors"]
+min_vram_gb = 8
+size_gb     = 5.0
+quant       = "Q4_K_M"
+note        = "간단한 사이트 adaptation 가능"
+
+[[model]]
+name        = "qwen3:14b"
+tasks       = ["compile_spec", "classify", "adapt_selectors", "repair_recipe"]
+min_vram_gb = 12
+size_gb     = 9.0
+quant       = "Q4_K_M"
+default     = true
+note        = "권장 기본값. 12GB VRAM에 16k 컨텍스트까지 여유"
+
+[[model]]
+name        = "qwen3:32b"
+tasks       = ["compile_spec", "classify", "adapt_selectors", "repair_recipe"]
+min_vram_gb = 24
+size_gb     = 20.0
+quant       = "Q4_K_M"
+note        = "복잡한 DOM도 1~2회에"
+
+[[model]]
+name        = "bge-m3"
+tasks       = ["embed"]
+min_vram_gb = 2
+size_gb     = 1.2
+note        = "semantic 필터 / RAG. 한국어 포함 다국어"
+
+# 요청마다 반드시 명시할 것. 미설정 시 Ollama가 2048~4096으로 잡아
+# DOM이 조용히 잘린다. (docs/08_LLM_ARCHITECTURE.md "실전 함정")
+[defaults]
+num_ctx     = 16384
+num_predict = 2048
+temperature = 0.2

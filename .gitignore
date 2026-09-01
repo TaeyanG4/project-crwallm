@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+
+# Tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Env
+.env
+.env.local
+
+# Runtime data
+data/
+archive/
+*.db
+*.sqlite3
+
+# Recipes are tracked; local scratch is not
+recipes/_scratch/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
