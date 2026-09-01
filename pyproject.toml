@@ -42,6 +42,9 @@ packages = ["src/crwallm"]
 target-version = "py312"
 line-length = 100
 src = ["src", "tests"]
+# ruff formats Python blocks inside Markdown. Documentation samples are
+# aligned deliberately, so keep it out of docs.
+extend-exclude = ["docs", "*.md"]
 
 [tool.ruff.lint]
 select = [

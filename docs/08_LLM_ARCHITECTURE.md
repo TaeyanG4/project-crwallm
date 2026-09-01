@@ -32,12 +32,11 @@ vLLM, LM Studio, Groq, Together도 같은 클라이언트로 커버된다.
 
 ```python
 class TaskKind(StrEnum):
-    COMPILE_SPEC = "compile_spec"  # 쉬움 — 4B도 충분
-    ADAPT_SELECTORS = "adapt_selectors"  # 어려움 — 14B 이상 권장
-    REPAIR_RECIPE = "repair_recipe"  # 어려움
-    CLASSIFY = "classify"  # 쉬움 — semantic 필터
-    EMBED = "embed"  # 임베딩
-
+    COMPILE_SPEC    = "compile_spec"      # 쉬움 — 4B도 충분
+    ADAPT_SELECTORS = "adapt_selectors"   # 어려움 — 14B 이상 권장
+    REPAIR_RECIPE   = "repair_recipe"     # 어려움
+    CLASSIFY        = "classify"          # 쉬움 — semantic 필터
+    EMBED           = "embed"             # 임베딩
 
 class ModelGateway(Protocol):
     async def generate_structured(
