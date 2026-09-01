@@ -1,6 +1,6 @@
 # 16. Roadmap
 
-## Phase 0 — Foundation
+## Phase 0 — Foundation  ✅
 
 - Python 3.12 + uv, pyproject
 - FastAPI 골격, `/health`
@@ -14,7 +14,7 @@
 
 ---
 
-## Phase 1 — Contracts & Policy
+## Phase 1 — Contracts & Policy  ✅
 
 - `CrawlSpec` / `Recipe` / `CrawlEvent` Pydantic 계약 확정
 - **엔진 인터페이스 확정** — `async def crawl(spec) -> AsyncIterator[CrawlEvent]`
@@ -23,6 +23,18 @@
 - Public Suffix List 기반 도메인 스코프
 - `HostPolicy` — 적응형 동시성(AIMD), 백오프, `Retry-After`, UA. `respect_robots` 필드는 자리만
 - 악성 로컬 서버 테스트 (127.0.0.1, 169.254.169.254, DNS rebinding, 무한 리다이렉트, 거대 응답)
+
+### Phase 1에서 확정된 것
+
+| 결정 | 근거 |
+|---|---|
+| URL을 **두 값**으로 (`url` / `dedupe_key`) | 하나로 합치면 공격적 dedupe가 fetch를 깨거나, 보수적 정규화가 프론티어를 폭발시킨다 |
+| DNS 응답 중 **하나라도** 내부면 호스트 전체 거부 | 브라우저 fetcher는 레코드를 고를 수 없어 피닝이 불가능하다 |
+| `Resolver`를 주입 | DNS rebinding은 실제 리졸버로 테스트할 수 없다. 테스트 가능성이 설계를 결정했다 |
+| 8자 이상 식별자 세그먼트는 **하나의** placeholder | 숫자 세션 ID와 hex 세션 ID가 다른 예산을 받으면 트랩이 살아남는다 |
+| 어댑터가 `aclosing`을 강제 | `break`는 async generator를 닫지 않는다. 크롤이 소비자보다 오래 산다 |
+| 이벤트에 `job_id` 없음 | job은 서비스 계층 개념. 엔진에 넣으면 core가 영속화를 알게 된다 |
+| tldextract `include_psl_private_domains=True` | `github.io`를 scope로 지정해 전체를 크롤하는 것을 막는다 |
 
 ---
 
