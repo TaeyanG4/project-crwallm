@@ -139,9 +139,8 @@ class TestEmbeddedJson:
         """Two of six real sites surveyed shipped their items this way, and
         the values are clean - no currency symbols, no thousands separators."""
         payload = {"props": {"pageProps": {"items": [{"id": 1}, {"id": 2}]}}}
-        tree = page(
-            body=f'<script id="__NEXT_DATA__" type="application/json">{json.dumps(payload)}</script>'
-        )
+        blob = json.dumps(payload)
+        tree = page(body=f'<script id="__NEXT_DATA__" type="application/json">{blob}</script>')
         data = extract_structured(tree)
         assert data.embedded["__NEXT_DATA__"]["props"]["pageProps"]["items"][0]["id"] == 1
 
