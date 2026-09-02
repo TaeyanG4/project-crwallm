@@ -158,6 +158,17 @@ class Bridge:
         if not chosen:
             return {"ok": False, "error": "모을 항목을 하나 이상 골라주세요."}
 
+        # A record is a dict, so two columns with one name is not two columns:
+        # the second overwrites the first and half of what was asked for
+        # silently never appears. Better to say so than to lose it.
+        names = [c.name for c in chosen]
+        repeated = sorted({n for n in names if names.count(n) > 1})
+        if repeated:
+            return {
+                "ok": False,
+                "error": f"이름이 겹칩니다: {', '.join(repeated)}. 서로 다른 이름을 지어주세요.",
+            }
+
         try:
             return self._run(self._collect(url, chosen, options or {}))
         except Exception as exc:
@@ -266,22 +277,7 @@ class Bridge:
             # it, and a key that exists on one path and not the other is how
             # the window ends up reading `undefined` and showing nothing.
             "hint": "",
-            "columns": [
-                {
-                    "index": column.index,
-                    # The window never shows this - the whole point is that
-                    # nobody reads a selector - but `collect` builds the plan
-                    # from what `look` found, and it has to come from
-                    # somewhere. Leaving it out was a KeyError waiting for the
-                    # first person who pressed the button.
-                    "selector": column.selector,
-                    "samples": [s for s in column.samples[:2] if s],
-                    "kind": column.kind,
-                    "fill": round(column.fill_rate * 100),
-                    "suggested": _suggest(column),
-                }
-                for column in best.usable_columns
-            ],
+            "columns": _columns(best.usable_columns),
             "declared": list(declared.types())[:4],
         }
 
@@ -392,6 +388,40 @@ _SUGGESTIONS = (
     ("href", "링크"),
     ("src", "이미지"),
 )
+
+
+def _columns(usable: Any) -> list[dict[str, Any]]:
+    """The picker's rows.
+
+    Suggested names are handed out once each. A listing with two link columns
+    would otherwise arrive with both boxes pre-filled "링크", and pressing the
+    button on that loses one of them - so the second box comes back empty,
+    which reads as a question rather than an answer.
+    """
+    out: list[dict[str, Any]] = []
+    taken: set[str] = set()
+    for column in usable:
+        name = _suggest(column)
+        if name in taken:
+            name = ""
+        elif name:
+            taken.add(name)
+        out.append(
+            {
+                "index": column.index,
+                # The window never shows this - the whole point is that nobody
+                # reads a selector - but `collect` builds the plan from what
+                # `look` found, and it has to come from somewhere. Leaving it
+                # out was a KeyError waiting for the first person who pressed
+                # the button.
+                "selector": column.selector,
+                "samples": [s for s in column.samples[:2] if s],
+                "kind": column.kind,
+                "fill": round(column.fill_rate * 100),
+                "suggested": name,
+            }
+        )
+    return out
 
 
 def _suggest(column: Any) -> str:

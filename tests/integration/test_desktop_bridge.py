@@ -120,6 +120,31 @@ class TestCollect:
         assert out["ok"] is False
         assert out["error"]
 
+    def test_two_columns_cannot_share_a_name(self, bridge: Bridge, server: RunningServer) -> None:
+        """A record is a dict. Two columns called the same thing is one column,
+        and the person who named them both gets half of what they asked for
+        with nothing saying so."""
+        url = server.url("/shop")
+        found = bridge.look(url)
+        picks = [
+            {"index": found["columns"][0]["index"], "name": "값"},
+            {"index": found["columns"][1]["index"], "name": "값"},
+        ]
+
+        out = bridge.collect(url, picks, {"max_pages": 1})
+
+        assert out["ok"] is False
+        assert "값" in out["error"]
+
+    def test_a_suggested_name_is_handed_out_once(
+        self, bridge: Bridge, server: RunningServer
+    ) -> None:
+        """The picker must not open with a collision already in it."""
+        found = bridge.look(server.url("/shop"))
+        suggested = [c["suggested"] for c in found["columns"] if c["suggested"]]
+
+        assert len(suggested) == len(set(suggested)), suggested
+
     def test_following_pages_reaches_more_than_the_one_pasted(
         self, bridge: Bridge, server: RunningServer
     ) -> None:
