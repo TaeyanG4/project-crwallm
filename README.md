@@ -61,9 +61,17 @@ docker compose up -d db && alembic upgrade head && crwallm serve
 **Phase 0 — Foundation 완료.**
 **Phase 1 — Contracts & Policy 완료.**
 **Phase 2 — Deterministic Crawl MVP 완료.**
-**Phase 3 — Structure & Recipe 완료.** 다음은 Phase 4 (LLM Runtime).
+**Phase 3 — Structure & Recipe 완료.**
+**Phase 4 — LLM Runtime 완료.** 마일스톤 1 달성. 다음은 Phase 5 (Spider 모드).
 
-지금 시점에서 **LLM 없이 완결된 도구**입니다.
+## 시작
+
+```bash
+uv venv --python 3.12 && uv pip install -e ".[dev]" && crwallm setup
+```
+
+`setup`이 설정 파일·DB·모델 서버·모델까지 준비합니다. GPU가 없거나 모델을
+쓰고 싶지 않으면 `--no-llm`으로 건너뛰어도 수준 0~1은 그대로 동작합니다.
 → [로드맵](docs/16_ROADMAP.md)
 
 ## 전제

@@ -23,7 +23,9 @@ import typer
 from pydantic import ValidationError
 
 from crwallm import __version__
+from crwallm.cli.model_cmd import app as model_app
 from crwallm.cli.recipe_cmd import app as recipe_app
+from crwallm.cli.setup_cmd import app as setup_app
 
 app = typer.Typer(
     name="crwallm",
@@ -457,6 +459,8 @@ def _print_structure(tree: Any) -> None:
 # --------------------------------------------------------------- recipes
 
 app.add_typer(recipe_app, name="recipe")
+app.add_typer(model_app, name="model")
+app.add_typer(setup_app, name="setup")
 
 
 # ----------------------------------------------------------------- jobs

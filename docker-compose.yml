@@ -57,5 +57,43 @@ services:
   #   volumes: [./src:/app/src, ./data:/app/data]
   #   command: python -m crwallm.jobs.worker
 
+  # The model server. Runs in the stack so a new machine needs nothing
+  # installed - `docker compose --profile llm up -d` and that is the setup.
+  #
+  # GPU passthrough works through Docker Desktop's WSL2 backend on Windows and
+  # nvidia-container-toolkit on Linux; verified on this machine with
+  # `docker run --rm --gpus all nvidia/cuda:12.4.0-base nvidia-smi`. Comment
+  # the `deploy` block out to run on CPU, which works and is slow enough that
+  # you will notice.
+  #
+  # Optional in the larger sense too: levels 0 and 1 of
+  # docs/02_PRODUCT_MODEL.md - hand-written recipes and picking detected
+  # columns - need no model at all.
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["llm"]
+    ports:
+      - "127.0.0.1:${CRWALLM_OLLAMA_PORT:-11434}:11434"
+    volumes:
+      # Models live under the project rather than in the user profile, so a
+      # checkout is one directory to back up, move or delete - and a 9GB model
+      # is not stranded on whatever drive the home directory happens to be on.
+      # data/ is gitignored.
+      - "${CRWALLM_OLLAMA_MODELS:-./data/ollama}:/root/.ollama"
+    environment:
+      # Flash attention is a prerequisite for quantising the KV cache, and the
+      # quantised cache is what buys a longer context on a card that would not
+      # otherwise fit one (docs/08_LLM_ARCHITECTURE.md).
+      OLLAMA_FLASH_ATTENTION: "1"
+      OLLAMA_KV_CACHE_TYPE: "q8_0"
+      OLLAMA_KEEP_ALIVE: "-1"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
 volumes:
   pgdata:

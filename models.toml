@@ -1,49 +1,64 @@
-# 모델 카탈로그 — 코드 밖에 둔다 (docs/08_LLM_ARCHITECTURE.md)
-# 모델 판도가 빠르게 바뀌므로 여기만 갱신하면 된다.
+# Model catalogue - deliberately outside the code.
+#
+# Model names and sizes change every few months. Needing a release to say that
+# a newer one exists would guarantee this file is wrong most of the time.
+#
+# `min_vram_gb` is what the weights plus a working context actually need, not
+# the file size. A model sized to the nameplate VRAM figure does not load: the
+# KV cache, the compositor and whatever else is resident want their share.
 
 [[model]]
-name        = "qwen3:4b"
+name        = "qwen3.5:2b"
 tasks       = ["compile_spec", "classify"]
-min_vram_gb = 4
-size_gb     = 2.5
-quant       = "Q4_K_M"
-note        = "저사양/CPU 폴백. adaptation은 API로 라우팅 권장"
+min_vram_gb = 3
+size_gb     = 1.6
+note        = "Low-end and CPU fallback. Route adapt_selectors elsewhere."
 
 [[model]]
-name        = "qwen3:8b"
+name        = "qwen3.5:4b"
 tasks       = ["compile_spec", "classify", "adapt_selectors"]
-min_vram_gb = 8
-size_gb     = 5.0
-quant       = "Q4_K_M"
-note        = "간단한 사이트 adaptation 가능"
+min_vram_gb = 5
+size_gb     = 2.8
+note        = "Small GPUs. Handles simple listings; expects the retry loop."
 
 [[model]]
-name        = "qwen3:14b"
+name        = "qwen3.5:9b"
 tasks       = ["compile_spec", "classify", "adapt_selectors", "repair_recipe"]
-min_vram_gb = 12
-size_gb     = 9.0
-quant       = "Q4_K_M"
+min_vram_gb = 9
+size_gb     = 6.6
 default     = true
-note        = "권장 기본값. 12GB VRAM에 16k 컨텍스트까지 여유"
+note = """
+The recommended default, and measured rather than assumed. On an RTX 4070 Ti
+SUPER it names detected columns with 100% accuracy at a 2.5s median - matching
+qwen3:14b (2.64s, same accuracy) while being 2GB smaller, which leaves more
+room for context. 9B is also the largest Qwen 3.5 that fits a 16GB card with a
+16k context.
+"""
 
 [[model]]
-name        = "qwen3:32b"
+name        = "qwen3.5:27b"
 tasks       = ["compile_spec", "classify", "adapt_selectors", "repair_recipe"]
-min_vram_gb = 24
-size_gb     = 20.0
-quant       = "Q4_K_M"
-note        = "복잡한 DOM도 1~2회에"
+min_vram_gb = 20
+size_gb     = 17.0
+note        = "24GB cards and up. qwen3.6 and 3.8 start at this size too."
 
 [[model]]
 name        = "bge-m3"
 tasks       = ["embed"]
 min_vram_gb = 2
 size_gb     = 1.2
-note        = "semantic 필터 / RAG. 한국어 포함 다국어"
+note        = "Semantic filters and, later, RAG. Strong on Korean."
 
-# 요청마다 반드시 명시할 것. 미설정 시 Ollama가 2048~4096으로 잡아
-# DOM이 조용히 잘린다. (docs/08_LLM_ARCHITECTURE.md "실전 함정")
+# Applied to every request unless a caller overrides them.
 [defaults]
+# Not optional. Ollama honours a model's Modelfile default - often 2048 - and
+# exceeding it does not raise: the prompt is silently truncated and the model
+# answers about a fragment. A reduced DOM is 2-4k tokens.
 num_ctx     = 16384
 num_predict = 2048
 temperature = 0.2
+
+# Reasoning models spend their budget deliberating before answering. Measured
+# on qwen3:14b: 69s with thinking versus 2.0s without, for the same structured
+# question - and the thinking version frequently produced no JSON at all.
+think = false

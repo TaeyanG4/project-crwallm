@@ -103,7 +103,7 @@ crwallm crawl <url> --recipe laptops --follow
 
 ---
 
-## Phase 4 — LLM Runtime
+## Phase 4 — LLM Runtime  ✅
 
 - `ModelGateway` Protocol + OpenAI 호환 구현 (Ollama/API 공용)
 - **작업별 라우팅** + fallback
@@ -116,7 +116,25 @@ crwallm crawl <url> --recipe laptops --follow
 - 자연어 → CrawlSpec 컴파일 (자동 실행 금지, 검토 가능한 후보 반환)
 - 시간/토큰 예산
 
-**마일스톤 1 완료 지점 후보. 수준 2~3 동작.**
+**마일스톤 1 완료. 수준 2~3 동작.**
+
+```bash
+crwallm setup                                    # 한 줄 설치
+crwallm model catalog                            # 이 머신이 돌릴 수 있는 것
+crwallm recipe adapt shop --url <url>            # 모델이 컬럼 이름 지정
+```
+
+### Phase 4에서 확정된 것
+
+| 결정 | 근거 (실측) |
+|---|---|
+| **`think: false` 기본값** | qwen3:14b 같은 질문에 **69초 vs 2.0초**. 추론 모드는 토큰 예산을 다 쓰고 JSON을 못 내놓는 경우가 많다 |
+| **qwen3.5:9b 기본 모델** | 14b와 정확도 동일(1.0), 속도 2.5s vs 2.64s, 크기 2GB 작음. 3.6/3.8은 최소 27b(17.7GB)라 16GB에 안 들어감 |
+| **후보 1개씩 생성, 통과 즉시 중단** | 3개 일괄 생성은 쉬운 페이지에서 같은 답을 3번 산다. **36.3초 → 2.9초** |
+| **모델은 selector를 쓰지 않는다** | 탐지기가 찾은 컬럼에 *이름만* 붙인다. 환각 selector가 실패 모드에서 사라진다 |
+| fallback은 **가용성**에만 | 답이 나빠서 유료 API로 넘어가면 사용자가 하지 않은 판단에 돈을 쓴다. 나쁜 답은 채점기 몫 |
+| Ollama를 **compose로** | 네이티브 설치는 불필요. Docker GPU 패스스루 실측 확인 |
+| 모델은 **프로젝트 폴더**에 | `data/ollama` (gitignore). 체크아웃 하나가 백업·이동·삭제 단위 |
 
 ---
 

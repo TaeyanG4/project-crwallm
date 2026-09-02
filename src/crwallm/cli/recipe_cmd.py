@@ -211,6 +211,103 @@ def _rule_from(name: str, column: Any) -> Any:
     )
 
 
+@app.command("adapt")
+def adapt(
+    name: Annotated[str, typer.Argument(help="Recipe name to create")],
+    url: Annotated[str, typer.Option("--url", help="Page to learn from")],
+    rounds: Annotated[int, typer.Option("--rounds", help="Retry rounds")] = 3,
+    candidates: Annotated[int, typer.Option("--candidates", help="Proposals per round")] = 3,
+    directory: Annotated[Path | None, typer.Option("--dir")] = None,
+    force: Annotated[bool, typer.Option("--force")] = False,
+    allow_local: Annotated[bool, typer.Option("--allow-local")] = False,
+) -> None:
+    """Let a model name the detected columns, then keep what scores best.
+
+    The model never writes a selector - Phase 3's detector already found
+    those. It only says what each column holds, and every proposal is run
+    against the real page before one is chosen
+    (docs/08_LLM_ARCHITECTURE.md).
+
+    ``recipe init --pick`` does the same thing with you doing the naming, and
+    needs no model at all.
+    """
+    store = _store(directory)
+    target = store.directory / f"{name}.yaml"
+    if target.exists() and not force:
+        _err(f"{target} already exists; pass --force to overwrite")
+        raise typer.Exit(1)
+
+    outcome = asyncio.run(_adapt(store, name, url, rounds, candidates, allow_local))
+    if outcome is None:
+        raise typer.Exit(1)
+
+
+async def _adapt(
+    store: RecipeStore,
+    name: str,
+    url: str,
+    rounds: int,
+    candidates: int,
+    allow_local: bool,
+) -> Path | None:
+    from urllib.parse import urlsplit
+
+    from crwallm.llm.gateway import ModelUnavailableError
+    from crwallm.llm.routing import RoutedGateway, RoutingConfig
+    from crwallm.llm.tasks.adapt import adapt_page
+    from crwallm.policy.domains import registrable_domain
+
+    response = await _fetch_one(url, allow_local=allow_local)
+
+    host = urlsplit(url).hostname or ""
+    domain = registrable_domain(host) or host
+
+    import os
+
+    gateway = RoutedGateway(
+        RoutingConfig.local_default(
+            base_url=os.environ.get("CRWALLM_OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
+            model=os.environ.get("CRWALLM_LLM_MODEL", "qwen3.5:9b"),
+            embed_model=os.environ.get("CRWALLM_EMBED_MODEL", "bge-m3"),
+        )
+    )
+    try:
+        outcome = await adapt_page(
+            gateway,
+            response,
+            name=name,
+            allowed_domains=(domain,) if domain else (),
+            rounds=rounds,
+            candidates=candidates,
+        )
+    except ModelUnavailableError as exc:
+        _err(str(exc))
+        typer.echo("  no model? `crwallm recipe init --pick` does this by hand.")
+        return None
+    finally:
+        await gateway.aclose()
+
+    for line in outcome.attempts:
+        typer.echo(f"  {line}")
+    typer.echo(
+        f"  {outcome.rounds} round(s), {outcome.total_elapsed_ms / 1000:.1f}s, "
+        f"{outcome.total_tokens} tokens"
+    )
+
+    if outcome.recipe is None:
+        _err("no usable recipe - try `crwallm inspect` to see what is on the page")
+        return None
+
+    path = store.save(outcome.recipe)
+    colour = typer.colors.GREEN if outcome.succeeded else typer.colors.YELLOW
+    typer.secho(f"wrote {path}", fg=colour)
+    if not outcome.succeeded:
+        typer.secho("  it did not reach the activation threshold - edit and re-test", fg=colour)
+    else:
+        typer.echo(f"  crwallm recipe activate {name}")
+    return path
+
+
 @app.command("test")
 def test(
     name: Annotated[str, typer.Argument()],
