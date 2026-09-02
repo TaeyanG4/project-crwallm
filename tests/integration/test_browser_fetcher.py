@@ -95,10 +95,32 @@ def request_for(url: str, *, timeout_s: float = 30.0, byte_limit: int = 4_000_00
 class TestRendering:
     async def test_a_page_written_by_script_is_returned(self, fetcher, server) -> None:  # type: ignore[no-untyped-def]
         """The entire justification for the browser: content that does not
-        exist in the bytes the server sent."""
+        exist in the bytes the server sent.
+
+        Asserted against the parsed DOM. A substring search over the body
+        passes on the *script* that would write the element, so the original
+        version of this test was green while the page rendered 2 times in 5.
+        """
+        from selectolax.lexbor import LexborHTMLParser
+
         result = await fetcher.fetch(request_for(server.url("/js/rendered")))
         assert isinstance(result, FetchResponse)
-        assert b"written-by-script" in result.body
+        rendered = LexborHTMLParser(result.body.decode()).css("div.written-by-script")
+        assert len(rendered) == 5
+
+    async def test_xhr_content_renders_every_time(self, fetcher, server) -> None:  # type: ignore[no-untyped-def]
+        """The reason settling has a floor rather than a default of zero.
+
+        Measured at zero: 2 renders in 5. A browser that gets the content half
+        the time is worse than no browser, because ``auto`` treats an empty
+        render as "this page really is empty".
+        """
+        from selectolax.lexbor import LexborHTMLParser
+
+        for _ in range(4):
+            result = await fetcher.fetch(request_for(server.url("/js/rendered")))
+            assert isinstance(result, FetchResponse)
+            assert LexborHTMLParser(result.body.decode()).css("div.written-by-script")
 
     async def test_the_response_reports_browser_mode(self, fetcher, server) -> None:  # type: ignore[no-untyped-def]
         """Which fetcher produced a page is the operator's answer to "why was
@@ -227,9 +249,21 @@ class TestNetworkObservation:
         finally:
             await f.aclose()
 
-    async def test_settling_is_off_by_default(self) -> None:
-        """A crawl that is not hunting for endpoints must not pay the wait."""
+    async def test_settling_is_on_by_default(self) -> None:
+        """It was zero, on the reasoning that a crawl not hunting for
+        endpoints should not pay the wait. Measurement overruled that: with
+        no settle an XHR-driven page rendered 2 times in 5, which makes the
+        browser worse than useless - ``auto`` reads an empty render as "the
+        page really is empty".
+        """
         f = BrowserFetcher(loopback_guard())
+        assert f._settle_ms >= 400
+        await f.aclose()
+
+    async def test_a_caller_can_still_turn_it_off(self) -> None:
+        """For a crawl of pages known to be server-rendered, where the
+        browser is doing something other than waiting for scripts."""
+        f = BrowserFetcher(loopback_guard(), settle_ms=0)
         assert f._settle_ms == 0
         await f.aclose()
 

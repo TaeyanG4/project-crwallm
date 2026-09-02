@@ -558,6 +558,10 @@ def _summarise_spider(
 def inspect(
     url: Annotated[str, typer.Argument(help="Page to look at")],
     links: Annotated[bool, typer.Option("--links/--no-links")] = True,
+    render: Annotated[
+        bool,
+        typer.Option("--render", help="Open a browser, and report the API calls the page makes"),
+    ] = False,
     allow_local: Annotated[
         bool,
         typer.Option("--allow-local", help="Permit loopback targets (your own dev server)"),
@@ -568,11 +572,18 @@ def inspect(
     The column indices in the output are the interface to ``recipe init
     --pick``, which is how a listing becomes a recipe without anyone writing a
     selector - level 1 of docs/02_PRODUCT_MODEL.md, and no model involved.
+
+    ``--render`` is how the browser pays for itself. A page whose content is
+    written by a script got it from somewhere, and rendering once to learn
+    that address means never rendering again: the endpoint can be crawled
+    directly, twenty times faster (docs/04_CRAWLING_ARCHITECTURE.md).
     """
-    asyncio.run(_inspect(url, links, allow_local))
+    asyncio.run(_inspect(url, links, allow_local, render))
 
 
-async def _inspect(url: str, show_links: bool, allow_local: bool = False) -> None:
+async def _inspect(
+    url: str, show_links: bool, allow_local: bool = False, render: bool = False
+) -> None:
     from crwallm.crawler.contracts import FetchFailure, FetchRequest
     from crwallm.crawler.extraction.css import extract_canonical, extract_links, parse
     from crwallm.crawler.fetching.http import SafeHttpFetcher
@@ -581,13 +592,23 @@ async def _inspect(url: str, show_links: bool, allow_local: bool = False) -> Non
     from crwallm.schemas.types import FetchMode
     from crwallm.structure.fingerprint import fingerprint_of
 
-    fetcher = SafeHttpFetcher(build_guard(allow_local=allow_local))
+    observed: list[str] = []
+    fetcher: Any
+    if render:
+        from crwallm.crawler.fetching.browser import BrowserFetcher
+
+        # A budget, not a fixed wait. The page is being asked what it calls,
+        # so it is worth giving it a moment - and nothing beyond that.
+        fetcher = BrowserFetcher(build_guard(allow_local=allow_local), settle_ms=2500)
+    else:
+        fetcher = SafeHttpFetcher(build_guard(allow_local=allow_local))
+
     try:
         outcome = await fetcher.fetch(
             FetchRequest(
                 url=normalize(url),
                 depth=0,
-                mode=FetchMode.HTTP,
+                mode=FetchMode.BROWSER if render else FetchMode.HTTP,
                 timeout_s=15.0,
                 byte_limit=5_000_000,
             )
@@ -609,6 +630,9 @@ async def _inspect(url: str, show_links: bool, allow_local: bool = False) -> Non
             typer.echo(f"canonical    {canonical}")
         typer.echo(f"fingerprint  {fingerprint_of(tree)}")
 
+        if render:
+            observed = list(fetcher.last_requests.json_urls) or list(fetcher.last_requests.urls)
+        _print_observed(observed)
         _print_declared(tree)
         _print_structure(tree)
 
@@ -622,6 +646,29 @@ async def _inspect(url: str, show_links: bool, allow_local: bool = False) -> Non
                 typer.echo(f"  ... and {len(found) - 20} more")
     finally:
         await fetcher.aclose()
+
+
+def _print_observed(urls: list[str]) -> None:
+    """API calls the page made while rendering.
+
+    The most valuable line this command can print. Phase 6 finds endpoints a
+    site *declares*; these are the ones it merely uses, and they are usually
+    the ones holding the data. A crawl pointed at one of these needs no
+    browser at all.
+    """
+    if not urls:
+        return
+    typer.echo("")
+    typer.echo("api calls made while rendering:")
+    for url in urls[:10]:
+        typer.echo(f"  {url}")
+    if len(urls) > 10:
+        typer.echo(f"  ... and {len(urls) - 10} more")
+    typer.echo("")
+    typer.secho(
+        "  ^ crawl one of these directly and the browser is not needed again",
+        fg=typer.colors.GREEN,
+    )
 
 
 def _print_declared(tree: Any) -> None:

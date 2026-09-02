@@ -63,6 +63,20 @@ Not ``script``: the whole reason for using a browser is that a script writes
 the content. Not ``xhr`` or ``fetch`` either - those *are* the content, and
 watching them is how the API behind a page gets found."""
 
+DEFAULT_SETTLE_MS = 500
+"""How long to let a page finish the calls it makes on load.
+
+Not an optimisation - a correctness floor, and measured. With no settle at all
+a page whose content arrives by XHR rendered 2 times in 5; at 500ms it
+rendered 5 in 5. Returning at ``domcontentloaded`` means returning before the
+page's own ``fetch`` has answered, which on an XHR-driven site is the whole
+content.
+
+It is a floor rather than a fixed wait: a page still issuing requests keeps
+the wait alive up to the caller's budget, and a quiet one costs exactly this.
+Half a second on top of the two the browser already costs, in exchange for the
+browser actually working on the pages it exists for."""
+
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
@@ -162,7 +176,7 @@ class BrowserFetcher:
         max_pages: int = 4,
         block_resources: bool = True,
         scroll: ScrollPolicy | None = None,
-        settle_ms: int = 0,
+        settle_ms: int = DEFAULT_SETTLE_MS,
         allow_private_subresources: bool = False,
     ) -> None:
         self._guard = guard
@@ -570,23 +584,25 @@ SETTLE_QUIET_MS = 300
 
 
 async def _settle(page: Page, seen: SeenRequests, *, budget_ms: int) -> None:
-    """Give the page a moment to issue the calls it makes on load.
+    """Let the page finish the requests it makes on load.
 
-    Waits for *quiet* rather than for a fixed interval, bounded by a budget.
-    A page that fires its API call immediately costs one quiet period; one
-    that fires nothing costs the same; one that keeps polling costs the budget
-    and no more.
+    A floor, then quiet-based extension. The floor exists because navigation
+    returns at ``domcontentloaded`` - before the page's own ``fetch`` has been
+    answered - and no amount of cleverness about "is anything in flight"
+    helps when nothing has been issued yet. Measured: without it, an
+    XHR-driven page rendered 2 times in 5.
 
-    Not Playwright's ``networkidle``: that waits for the whole network to go
-    quiet and never returns on a page with an open websocket, which is the
-    trade this module refuses everywhere else. Quiet here means "we have seen
-    no new request", measured against our own record.
+    Past the floor it keeps waiting only while requests are still arriving,
+    bounded by the budget. A page that polls forever costs the budget and no
+    more; a page that goes quiet costs the floor.
 
-    Even so this is a race, and it is meant to narrow one rather than remove
-    it. A page that calls its API a full second after load will be missed by a
-    500ms budget, and that is the caller's dial to turn.
+    Not Playwright's ``networkidle``, which never arrives on a page with an
+    open websocket - the trade this module refuses everywhere else.
     """
-    deadline = time.perf_counter() + budget_ms / 1000
+    floor_ms = min(DEFAULT_SETTLE_MS, budget_ms)
+    await page.wait_for_timeout(floor_ms)
+
+    deadline = time.perf_counter() + (budget_ms - floor_ms) / 1000
     last_count = len(seen.urls)
     quiet_for = 0
 
@@ -597,5 +613,5 @@ async def _settle(page: Page, seen: SeenRequests, *, budget_ms: int) -> None:
             quiet_for = 0
             continue
         quiet_for += SETTLE_TICK_MS
-        if quiet_for >= SETTLE_QUIET_MS and last_count:
+        if quiet_for >= SETTLE_QUIET_MS:
             return
