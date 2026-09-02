@@ -14,7 +14,7 @@ dependencies = [
     "asyncpg>=0.30",
     "alembic>=1.14",
     "typer>=0.15",
-    "httpx[http2]>=0.28",
+    "httpx[http2,brotli,zstd]>=0.28",
     "tldextract>=5.1",
     "uvloop>=0.21; sys_platform != 'win32'",
 ]
@@ -68,6 +68,9 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S", "B"]
+# The network backend implements httpcore's interface verbatim; its
+# timeout parameter is not ours to redesign into asyncio.timeout.
+"src/crwallm/crawler/fetching/pinning.py" = ["ASYNC109"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "parents"
@@ -98,7 +101,10 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "-q --strict-markers"
+# basetemp is pinned inside the project: the system temp directory is not
+# reliably writable on every developer machine, and a test suite that
+# fails on where it puts scratch files teaches nothing.
+addopts = "-q --strict-markers --basetemp=.pytest-tmp"
 markers = [
     "integration: requires a running PostgreSQL",
     "e2e: full stack",

@@ -59,7 +59,8 @@ docker compose up -d db && alembic upgrade head && crwallm serve
 ## 상태
 
 **Phase 0 — Foundation 완료.**
-**Phase 1 — Contracts & Policy 완료.** 다음은 Phase 2 (Deterministic Crawl MVP).
+**Phase 1 — Contracts & Policy 완료.**
+**Phase 2 — Deterministic Crawl MVP 완료.** 다음은 Phase 3 (Structure & Recipe).
 → [로드맵](docs/16_ROADMAP.md)
 
 ## 전제

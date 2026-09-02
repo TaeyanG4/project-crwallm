@@ -21,6 +21,7 @@ import tldextract
 __all__ = [
     "DomainScope",
     "InvalidDomainError",
+    "is_ip_literal",
     "registrable_domain",
     "validate_allowed_domains",
 ]
@@ -44,6 +45,22 @@ def _extractor() -> tldextract.TLDExtract:
         # anyone ever published there.
         include_psl_private_domains=True,
     )
+
+
+def is_ip_literal(host: str) -> bool:
+    """Is this an address rather than a name?
+
+    Addresses are exempt from the public-suffix rule. That rule exists to stop
+    ``allowed_domains=["com"]`` scoping a crawl to an entire TLD; an IP is the
+    opposite of that - maximally specific, matching exactly one host. A local
+    service or an appliance with no DNS name is a legitimate target, and the
+    SSRF guard still decides whether the address itself is reachable.
+    """
+    try:
+        ipaddress.ip_address(host.strip().strip("[]"))
+    except ValueError:
+        return False
+    return True
 
 
 def registrable_domain(host: str) -> str | None:
@@ -85,6 +102,10 @@ def validate_allowed_domains(domains: tuple[str, ...]) -> tuple[str, ...]:
         if "/" in domain or ":" in domain.rstrip("]").lstrip("["):
             raise InvalidDomainError(f"{domain!r} looks like a URL, not a domain")
 
+        if is_ip_literal(domain):
+            out.append(domain.strip().strip("[]").lower())
+            continue
+
         registrable = registrable_domain(domain)
         if registrable is None:
             raise InvalidDomainError(
@@ -111,11 +132,15 @@ class DomainScope:
         return cls(frozenset(validate_allowed_domains(allowed_domains)))
 
     def contains(self, host: str) -> bool:
-        candidate = host.strip().lower().rstrip(".")
+        candidate = host.strip().lower().rstrip(".").strip("[]")
         if not candidate:
             return False
         for domain in self.domains:
-            if candidate == domain or candidate.endswith("." + domain):
+            if candidate == domain:
+                return True
+            # Subdomain matching applies to names only. "1.2.3.4" must not
+            # admit "evil.1.2.3.4", and an address has no subdomains anyway.
+            if not is_ip_literal(domain) and candidate.endswith("." + domain):
                 return True
         return False
 

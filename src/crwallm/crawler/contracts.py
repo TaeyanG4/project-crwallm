@@ -23,6 +23,9 @@ class FetchRequest:
     mode: FetchMode
     timeout_s: float
     byte_limit: int
+    max_redirects: int = 5
+    """Hops, not attempts. The fetcher re-runs the full policy gate on each
+    one, so this bounds work as well as exposure."""
 
 
 @dataclass(frozen=True, slots=True)

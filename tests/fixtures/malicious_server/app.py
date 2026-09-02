@@ -212,6 +212,38 @@ def create_app() -> FastAPI:
         """429 with Retry-After - the adaptive controller's input."""
         return PlainTextResponse("slow down", status_code=429, headers={"Retry-After": "2"})
 
+    @app.get("/encoded/{scheme}")
+    async def encoded(scheme: str) -> Response:
+        """A normal page, compressed.
+
+        Advertising an encoding the client cannot decode does not error - it
+        returns 200 with a body of noise, and every record from that page is
+        silently wrong. This endpoint is what proves the fetcher only asks for
+        what it can actually read.
+        """
+        payload = (
+            "<html><head><title>compressed</title></head><body>테스트</body></html>"
+        ).encode()
+
+        if scheme == "gzip":
+            import gzip as gzip_mod
+
+            body = gzip_mod.compress(payload)
+        elif scheme == "deflate":
+            import zlib
+
+            body = zlib.compress(payload)
+        elif scheme == "br":
+            try:
+                import brotli
+            except ImportError:  # pragma: no cover - the dependency is declared
+                return PlainTextResponse("brotli unavailable", status_code=501)
+            body = brotli.compress(payload)
+        else:
+            return PlainTextResponse(f"unknown encoding {scheme}", status_code=400)
+
+        return Response(content=body, media_type="text/html", headers={"Content-Encoding": scheme})
+
     @app.get("/gzip-bomb")
     async def gzip_bomb() -> Response:
         """Small compressed, enormous decompressed.

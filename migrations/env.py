@@ -10,10 +10,10 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncEngine, async_engine_from_config
 
 from crwallm.config import get_settings
-from crwallm.db.base import Base
 
-# Import models here so autogenerate sees them. Populated from Phase 1 onward.
-# from crwallm.db import models
+# Imported for the side effect of registering tables on Base.metadata.
+from crwallm.db import models  # noqa: F401
+from crwallm.db.base import Base
 
 config = context.config
 config.set_main_option("sqlalchemy.url", get_settings().database_url)
