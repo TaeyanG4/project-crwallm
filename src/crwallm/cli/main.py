@@ -23,6 +23,7 @@ import typer
 from pydantic import ValidationError
 
 from crwallm import __version__
+from crwallm.cli.recipe_cmd import app as recipe_app
 
 app = typer.Typer(
     name="crwallm",
@@ -163,6 +164,11 @@ def crawl(
     container: Annotated[
         str | None, typer.Option("--container", help="Repeat this selector per record")
     ] = None,
+    recipe: Annotated[
+        str | None,
+        typer.Option("--recipe", help="Use a saved recipe instead of --field/--container"),
+    ] = None,
+    recipe_dir: Annotated[Path | None, typer.Option("--recipe-dir")] = None,
     domain: Annotated[list[str] | None, typer.Option("--domain", help="Allowed domains")] = None,
     max_pages: Annotated[int, typer.Option("--max-pages")] = 20,
     max_depth: Annotated[int, typer.Option("--max-depth")] = 2,
@@ -175,6 +181,10 @@ def crawl(
         Path | None, typer.Option("--output", "-o", help="Write records as JSONL")
     ] = None,
     quiet: Annotated[bool, typer.Option("--quiet", "-q")] = False,
+    allow_local: Annotated[
+        bool,
+        typer.Option("--allow-local", help="Permit loopback targets (your own dev server)"),
+    ] = False,
 ) -> None:
     """Run a crawl in the foreground and print what it finds.
 
@@ -184,6 +194,13 @@ def crawl(
     from crwallm.crawler.extraction.css import CssSpec
     from crwallm.services.crawl import CrawlPlan, parse_field
 
+    if recipe and (field or container):
+        raise typer.BadParameter(
+            "--recipe already says how to extract; drop --field and --container"
+        )
+
+    loaded = _load_recipe(recipe, recipe_dir) if recipe else None
+
     try:
         fields = tuple(parse_field(f) for f in (field or []))
     except ValueError as exc:
@@ -192,7 +209,12 @@ def crawl(
     with _user_errors():
         spec = _build_spec(
             seeds,
-            domains=domain,
+            # A recipe is system-of-record for where it works, and reuse must
+            # narrow the scope rather than widen it
+            # (docs/07_RECIPE_ARCHITECTURE.md). Passing the recipe's domains as
+            # the default keeps a crawl from wandering off the site it was
+            # written against.
+            domains=domain or (list(loaded.allowed_domains) if loaded else None),
             max_pages=max_pages,
             max_depth=max_depth,
             follow=follow,
@@ -200,14 +222,47 @@ def crawl(
             include=include,
             exclude=exclude,
         )
-    plan = CrawlPlan(spec=spec, extraction=CssSpec(container=container, fields=fields))
-    records = asyncio.run(_run_crawl(plan, archive=archive, quiet=quiet))
+
+    if loaded is not None:
+        from crwallm.services.recipe import to_css_spec
+
+        extraction = to_css_spec(loaded, follow_links=follow)
+    else:
+        extraction = CssSpec(container=container, fields=fields)
+
+    plan = CrawlPlan(spec=spec, extraction=extraction)
+    records = asyncio.run(_run_crawl(plan, archive=archive, quiet=quiet, allow_local=allow_local))
     _emit_records(records, output)
 
 
-async def _run_crawl(plan: Any, *, archive: Path | None, quiet: bool) -> list[dict[str, Any]]:
+def _load_recipe(name: str, directory: Path | None) -> Any:
+    from crwallm.schemas.recipe import RecipeStatus
+    from crwallm.services.recipe import RecipeFileError, RecipeStore
+
+    try:
+        loaded = RecipeStore(directory or Path("recipes")).load(name)
+    except RecipeFileError as exc:
+        _err(str(exc))
+        raise typer.Exit(1) from None
+
+    if loaded.status is not RecipeStatus.ACTIVE:
+        # A warning, not a refusal. Running a candidate is exactly what you do
+        # while developing one; being stopped would make the loop useless.
+        typer.secho(
+            f"note: {name} is {loaded.status.value}, not active "
+            f"(run `crwallm recipe activate {name}` once it scores well)",
+            fg=typer.colors.YELLOW,
+            err=True,
+        )
+    return loaded
+
+
+async def _run_crawl(
+    plan: Any, *, archive: Path | None, quiet: bool, allow_local: bool = False
+) -> list[dict[str, Any]]:
     from collections import Counter
 
+    from crwallm.policy.local import build_guard
     from crwallm.schemas.events import (
         JobCompleted,
         PageFailed,
@@ -221,7 +276,9 @@ async def _run_crawl(plan: Any, *, archive: Path | None, quiet: bool) -> list[di
     errors: Counter[str] = Counter()
     rejects: Counter[str] = Counter()
 
-    async with open_crawl(plan, archive_dir=archive) as events:
+    async with open_crawl(
+        plan, archive_dir=archive, guard=build_guard(allow_local=allow_local)
+    ) as events:
         async for event in events:
             match event:
                 case PageFetched():
@@ -290,25 +347,30 @@ def _summarise(event: Any, records: list[Any], errors: Any, rejects: Any) -> Non
 def inspect(
     url: Annotated[str, typer.Argument(help="Page to look at")],
     links: Annotated[bool, typer.Option("--links/--no-links")] = True,
+    allow_local: Annotated[
+        bool,
+        typer.Option("--allow-local", help="Permit loopback targets (your own dev server)"),
+    ] = False,
 ) -> None:
-    """Fetch one page and report what is in it.
+    """Fetch one page and report what repeats on it.
 
-    A stopgap until Phase 3's structure detector, which finds repeating
-    containers on its own. For now this shows enough to write selectors by
-    hand.
+    The column indices in the output are the interface to ``recipe init
+    --pick``, which is how a listing becomes a recipe without anyone writing a
+    selector - level 1 of docs/02_PRODUCT_MODEL.md, and no model involved.
     """
-    asyncio.run(_inspect(url, links))
+    asyncio.run(_inspect(url, links, allow_local))
 
 
-async def _inspect(url: str, show_links: bool) -> None:
+async def _inspect(url: str, show_links: bool, allow_local: bool = False) -> None:
     from crwallm.crawler.contracts import FetchFailure, FetchRequest
     from crwallm.crawler.extraction.css import extract_canonical, extract_links, parse
     from crwallm.crawler.fetching.http import SafeHttpFetcher
-    from crwallm.policy.ssrf import CachingResolver, SsrfGuard, SystemResolver
+    from crwallm.policy.local import build_guard
     from crwallm.policy.url import normalize
     from crwallm.schemas.types import FetchMode
+    from crwallm.structure.fingerprint import fingerprint_of
 
-    fetcher = SafeHttpFetcher(SsrfGuard(CachingResolver(SystemResolver())))
+    fetcher = SafeHttpFetcher(build_guard(allow_local=allow_local))
     try:
         outcome = await fetcher.fetch(
             FetchRequest(
@@ -327,23 +389,74 @@ async def _inspect(url: str, show_links: bool) -> None:
         typer.echo(f"status       {outcome.status}")
         typer.echo(f"content-type {outcome.content_type}")
         typer.echo(f"bytes        {len(outcome.body)}")
-        canonical = extract_canonical(tree)
-        if canonical:
-            typer.echo(f"canonical    {canonical}")
 
         title = tree.css_first("title", default=None, strict=False)
         if title is not None:
             typer.echo(f"title        {title.text(strip=True)}")
+        canonical = extract_canonical(tree)
+        if canonical:
+            typer.echo(f"canonical    {canonical}")
+        typer.echo(f"fingerprint  {fingerprint_of(tree)}")
+
+        _print_structure(tree)
 
         if show_links:
             found = extract_links(tree, outcome.url.url)
-            typer.echo(f"\nlinks ({len(found)}):")
-            for href in found[:30]:
+            typer.echo("")
+            typer.echo(f"links ({len(found)}):")
+            for href in found[:20]:
                 typer.echo(f"  {href}")
-            if len(found) > 30:
-                typer.echo(f"  ... and {len(found) - 30} more")
+            if len(found) > 20:
+                typer.echo(f"  ... and {len(found) - 20} more")
     finally:
         await fetcher.aclose()
+
+
+def _print_structure(tree: Any) -> None:
+    """Report the repeated containers and their columns.
+
+    Printing indices rather than only selectors is deliberate. Naming a column
+    is a question anyone can answer; writing a selector is not, and it is the
+    step that a language model finds hard too
+    (docs/08_LLM_ARCHITECTURE.md).
+    """
+    from crwallm.structure.detector import detect_containers
+
+    candidates = detect_containers(tree)
+    typer.echo("")
+
+    if not candidates:
+        typer.echo("no repeated structure - this looks like a detail page")
+        typer.echo("write the fields by hand: crwallm recipe init <name> --url <url>")
+        return
+
+    typer.echo("repeated structure:")
+    for rank, candidate in enumerate(candidates):
+        marker = "*" if rank == 0 else " "
+        typer.secho(
+            f" {marker} {candidate.selector}  x{candidate.count}  "
+            f"(score {candidate.score}, {candidate.text_density} words each)",
+            fg=typer.colors.GREEN if rank == 0 else None,
+        )
+        for column in candidate.usable_columns:
+            sample = column.samples[0] if column.samples else ""
+            if len(sample) > 46:
+                sample = sample[:46] + "..."
+            typer.echo(
+                f"     [{column.index}] {column.selector:<24} {column.kind:<5} "
+                f"{column.fill_rate:.0%}  {sample}"
+            )
+
+    best = candidates[0]
+    if best.usable_columns:
+        picks = ",".join(f"name{c.index}={c.index}" for c in best.usable_columns[:3])
+        typer.echo("")
+        typer.echo(f"  crwallm recipe init <name> --url <url> --pick {picks}")
+
+
+# --------------------------------------------------------------- recipes
+
+app.add_typer(recipe_app, name="recipe")
 
 
 # ----------------------------------------------------------------- jobs

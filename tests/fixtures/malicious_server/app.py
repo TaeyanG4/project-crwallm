@@ -53,6 +53,65 @@ def create_app() -> FastAPI:
     async def page_b() -> str:
         return "<html><body>b</body></html>"
 
+    @app.get("/shop", response_class=HTMLResponse)
+    async def shop(page: int = 1) -> str:
+        """A listing page shaped like a real one.
+
+        Deliberately awkward in the ways real pages are: framework layout
+        classes on every card, a navigation menu that also repeats, one item
+        with no price, lazy-loaded images with a placeholder in ``src``, and a
+        button whose text is identical on every row. The structure detector has
+        to find the grid through all of that.
+        """
+        start = (page - 1) * 4 + 1
+        cards = "".join(
+            f'<li class="product-item col-md-3 col-sm-6" data-idx="{i}">'
+            f'  <div class="card-body p-2">'
+            f'    <h3 class="name">'
+            f'<a href="/shop/item/{i}">Laptop model {i} with a long name</a></h3>'
+            f'    <span class="price">{i}90,000</span>'
+            f'    <img data-src="/img/{i}.jpg" src="/img/blank.gif" alt="pic">'
+            f'    <button class="btn btn-cart">Add to cart</button>'
+            f"  </div></li>"
+            if i % 4 != 0
+            else (
+                f'<li class="product-item col-md-3 col-sm-6" data-idx="{i}">'
+                f'  <div class="card-body p-2">'
+                f'    <h3 class="name">'
+                f'<a href="/shop/item/{i}">Laptop model {i} sold out edition</a></h3>'
+                f'    <span class="price">Sold out</span>'
+                f'    <img data-src="/img/{i}.jpg" src="/img/blank.gif" alt="pic">'
+                f'    <button class="btn btn-cart">Add to cart</button>'
+                f"  </div></li>"
+            )
+            for i in range(start, start + 8)
+        )
+        nav = "".join(
+            f'<li class="nav-item"><a href="/shop?cat={c}">{c}</a></li>'
+            for c in ("new", "sale", "brands", "help")
+        )
+        nxt = (
+            f'<a class="pagination-next" href="/shop?page={page + 1}">next</a>' if page < 3 else ""
+        )
+        return (
+            f"<html><head><title>Shop page {page}</title>"
+            f'<link rel="canonical" href="/shop?page={page}"></head><body>'
+            f'<nav><ul class="menu">{nav}</ul></nav>'
+            f'<main><ul class="grid row">{cards}</ul>{nxt}</main>'
+            f"<footer><p>copyright</p></footer></body></html>"
+        )
+
+    @app.get("/shop/item/{n}", response_class=HTMLResponse)
+    async def shop_item(n: int) -> str:
+        """A detail page - no repetition, so the detector should say so."""
+        return (
+            f"<html><head><title>Laptop {n}</title></head><body>"
+            f'<h1 class="title">Laptop model {n}</h1>'
+            f'<div class="spec"><span class="price">{n}90,000</span>'
+            f'<p class="desc">A description of laptop {n} that runs to a sentence.</p></div>'
+            f"</body></html>"
+        )
+
     # ------------------------------------------------------------- SSRF
     # Each of these is a link a crawled page could plausibly contain.
 

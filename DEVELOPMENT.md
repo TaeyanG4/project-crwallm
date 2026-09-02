@@ -153,7 +153,33 @@ crwallm jobs submit https://example.com/ --max-pages 100
 crwallm worker
 ```
 
-`recipe` 명령은 Phase 3에서 추가됩니다. → [docs/13_API_PLAN.md](docs/13_API_PLAN.md)
+Recipe 워크플로우 — 모델도 API 키도 필요 없습니다.
+
+```bash
+crwallm inspect https://example.com/products
+```
+
+```bash
+crwallm recipe init laptops --url https://example.com/products --pick title=0,price=2
+```
+
+```bash
+crwallm recipe test laptops
+```
+
+```bash
+crwallm recipe activate laptops
+```
+
+```bash
+crwallm crawl https://example.com/products --recipe laptops --follow
+```
+
+자기 로컬 개발 서버를 대상으로 할 때는 `--allow-local`을 붙입니다. loopback만
+열리고 사설 대역과 클라우드 메타데이터는 그대로 차단됩니다. CLI에만 있고
+REST API에는 없습니다 — 터미널에 친 플래그와 웹페이지가 보낸 요청은 다릅니다.
+
+→ [docs/13_API_PLAN.md](docs/13_API_PLAN.md)
 
 ## 프로젝트 규약
 

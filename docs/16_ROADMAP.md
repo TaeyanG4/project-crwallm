@@ -68,7 +68,7 @@
 
 ---
 
-## Phase 3 — Structure & Recipe (LLM 없음)
+## Phase 3 — Structure & Recipe (LLM 없음)  ✅
 
 - **결정론적 반복 구조 탐지** — 형제 그룹 시그니처, 텍스트 밀도, 컬럼 전개
 - **DOM 축약기** — 2~4k 토큰 목표
@@ -80,6 +80,26 @@
 - 응답 캐시(아카이브 재사용)로 개발 루프 가속
 
 **수준 0~1이 여기서 완성된다. LLM 없이 쓸 수 있는 도구가 된다.**
+
+```bash
+crwallm inspect <url>                                  # 무엇이 반복되는가
+crwallm recipe init laptops --url <url> --pick title=0,price=2
+crwallm recipe test laptops                            # 레코드 수 + 점수
+crwallm recipe activate laptops
+crwallm crawl <url> --recipe laptops --follow
+```
+
+### Phase 3에서 확정된 것
+
+| 결정 | 근거 |
+|---|---|
+| 컬럼 값을 **selector로 되읽기** | 클래스가 필터링되면 `span.price`가 `span`이 되고, 그건 컨테이너의 *첫* span을 고른다. 샘플과 실제 추출값이 갈리면 그 샘플은 거짓말이다 |
+| 레이아웃 클래스 제거, 단 **파라미터가 붙은 것만** | `p-2`는 패딩이지만 맨 `p`는 남의 클래스명일 수 있다. 과도 필터링은 selector 특정성을 잃는다 |
+| 래퍼 컬럼 제거 | `div.card-body` 텍스트는 카드 전체다. 구조상 컬럼이고 의미상 아무것도 아니며, 언뜻 그럴듯해 보여서 더 나쁘다 |
+| 값이 같은 컬럼 병합, **얕은 쪽 채택** | `h3`와 `h3 > a`는 같은 텍스트. 얕은 쪽이 내부 마크업 변경에 강하다 |
+| `quality`를 YAML에 유지 | active 상태의 근거이고, 빼면 활성화한 recipe를 다시 읽을 수 없다 (실제로 발생) |
+| `--allow-local`은 CLI 전용 | 사용자가 터미널에 친 플래그와 웹페이지가 보낸 요청은 다르다. loopback만 열고 사설 대역·메타데이터는 그대로 막는다 |
+| PyYAML `safe_load` | recipe는 데이터이고, Phase 4부터는 모델이 쓴다. full loader는 임의 객체를 만든다 |
 
 ---
 
