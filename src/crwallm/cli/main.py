@@ -346,6 +346,161 @@ def _summarise(event: Any, records: list[Any], errors: Any, rejects: Any) -> Non
 
 
 @app.command()
+def spider(
+    seeds: Annotated[list[str], typer.Argument(help="Seed URLs")],
+    recipe: Annotated[str | None, typer.Option("--recipe")] = None,
+    recipe_dir: Annotated[Path | None, typer.Option("--recipe-dir")] = None,
+    domain: Annotated[list[str] | None, typer.Option("--domain")] = None,
+    max_pages: Annotated[int, typer.Option("--max-pages")] = 200,
+    max_depth: Annotated[int, typer.Option("--max-depth")] = 4,
+    concurrency: Annotated[int, typer.Option("--concurrency", "-c")] = 16,
+    per_host: Annotated[int, typer.Option("--per-host", help="Concurrent requests per host")] = 4,
+    interval_ms: Annotated[int, typer.Option("--interval-ms", help="Minimum gap per host")] = 0,
+    include: Annotated[list[str] | None, typer.Option("--include")] = None,
+    exclude: Annotated[list[str] | None, typer.Option("--exclude")] = None,
+    sitemaps: Annotated[bool, typer.Option("--sitemaps/--no-sitemaps")] = True,
+    dedupe: Annotated[bool, typer.Option("--dedupe/--no-dedupe")] = True,
+    archive: Annotated[Path | None, typer.Option("--archive")] = None,
+    output: Annotated[Path | None, typer.Option("--output", "-o")] = None,
+    quiet: Annotated[bool, typer.Option("--quiet", "-q")] = False,
+    allow_local: Annotated[bool, typer.Option("--allow-local")] = False,
+) -> None:
+    """Walk a site broadly, rather than extracting from known pages.
+
+    Different machinery from ``crawl``: sitemaps are read first, hosts get
+    their own queues and are served round-robin, URLs are ordered by how
+    likely they are to be worth having, and pages that duplicate one already
+    seen - or that answer 200 while meaning 404 - stop costing budget.
+    docs/05_SPIDER_ARCHITECTURE.md
+    """
+    from crwallm.crawler.extraction.css import CssSpec
+    from crwallm.schemas.spec import CrawlLimits, CrawlSpec, UrlFilters
+    from crwallm.schemas.types import CrawlMode
+    from crwallm.services.crawl import CrawlPlan
+
+    loaded = _load_recipe(recipe, recipe_dir) if recipe else None
+
+    with _user_errors():
+        base = _build_spec(
+            seeds,
+            domains=domain or (list(loaded.allowed_domains) if loaded else None),
+            max_pages=max_pages,
+            max_depth=max_depth,
+            follow=True,
+            concurrency=concurrency,
+            include=include,
+            exclude=exclude,
+        )
+        spec = CrawlSpec(
+            **base.model_dump(exclude={"limits", "mode", "url_filters"}),
+            mode=CrawlMode.SPIDER,
+            limits=CrawlLimits(
+                max_pages=max_pages,
+                max_depth=max_depth,
+                global_concurrency=concurrency,
+                per_host_concurrency=per_host,
+                min_interval_ms=interval_ms,
+            ),
+            url_filters=UrlFilters(include=tuple(include or ()), exclude=tuple(exclude or ())),
+        )
+
+    if loaded is not None:
+        from crwallm.services.recipe import to_css_spec
+
+        extraction = to_css_spec(loaded, follow_links=True)
+    else:
+        extraction = CssSpec()
+
+    plan = CrawlPlan(spec=spec, extraction=extraction)
+    records = asyncio.run(
+        _run_spider(
+            plan,
+            archive=archive,
+            quiet=quiet,
+            allow_local=allow_local,
+            sitemaps=sitemaps,
+            dedupe=dedupe,
+        )
+    )
+    _emit_records(records, output)
+
+
+async def _run_spider(
+    plan: Any,
+    *,
+    archive: Path | None,
+    quiet: bool,
+    allow_local: bool,
+    sitemaps: bool,
+    dedupe: bool,
+) -> list[dict[str, Any]]:
+    from collections import Counter
+
+    from crwallm.schemas.events import (
+        DuplicateDetected,
+        JobCompleted,
+        PageFailed,
+        PageFetched,
+        RecordsExtracted,
+        UrlRejected,
+    )
+    from crwallm.services.spider import SpiderSetup, open_spider
+
+    records: list[dict[str, Any]] = []
+    errors: Counter[str] = Counter()
+    rejects: Counter[str] = Counter()
+    duplicates: Counter[str] = Counter()
+    setup = SpiderSetup()
+
+    async with open_spider(
+        plan,
+        archive_dir=archive,
+        allow_local=allow_local,
+        use_sitemaps=sitemaps,
+        dedupe_content=dedupe,
+        setup=setup,
+    ) as events:
+        typer.secho(f"  {setup.summary()}", fg=typer.colors.BLUE)
+        async for event in events:
+            match event:
+                case PageFetched():
+                    if not quiet:
+                        typer.echo(f"  {event.status}  {event.url}")
+                case PageFailed():
+                    errors[event.error_kind.value] += 1
+                case DuplicateDetected():
+                    # canonical and content are different findings: one is
+                    # the site telling us, the other is us noticing.
+                    duplicates[event.via] += 1
+                case RecordsExtracted():
+                    records.extend(event.records)
+                case UrlRejected():
+                    rejects[event.reason.value] += 1
+                case JobCompleted():
+                    _summarise_spider(event, records, errors, rejects, duplicates)
+                case _:
+                    pass
+
+    return records
+
+
+def _summarise_spider(
+    event: Any, records: list[Any], errors: Any, rejects: Any, duplicates: Any
+) -> None:
+    typer.echo("")
+    typer.secho(
+        f"{event.pages_fetched} pages, {len(records)} records, {event.elapsed_s}s",
+        fg=typer.colors.GREEN,
+    )
+    if duplicates:
+        typer.echo("  duplicates: " + ", ".join(f"{k}={v}" for k, v in sorted(duplicates.items())))
+    if errors:
+        typer.echo("  failures: " + ", ".join(f"{k}={v}" for k, v in errors.most_common()))
+    if rejects:
+        typer.echo("  rejected: " + ", ".join(f"{k}={v}" for k, v in rejects.most_common(6)))
+
+
+@app.command()
 def inspect(
     url: Annotated[str, typer.Argument(help="Page to look at")],
     links: Annotated[bool, typer.Option("--links/--no-links")] = True,

@@ -17,6 +17,7 @@ dependencies = [
     "httpx[http2,brotli,zstd]>=0.28",
     "tldextract>=5.1",
     "pyyaml>=6.0",
+    "rbloom>=1.5",
     "uvloop>=0.21; sys_platform != 'win32'",
 ]
 

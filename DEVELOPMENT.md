@@ -149,6 +149,13 @@ crwallm crawl https://example.com/ --field "title=h1::text" --max-pages 5
 crwallm jobs submit https://example.com/ --max-pages 100
 ```
 
+사이트를 넓게 훑을 때는 `spider`입니다. sitemap을 먼저 읽고, 호스트별 큐를
+라운드로빈하고, 중복 콘텐츠와 soft 404를 걸러냅니다.
+
+```bash
+crwallm spider https://example.com/ --max-pages 500 --per-host 4
+```
+
 ```bash
 crwallm worker
 ```

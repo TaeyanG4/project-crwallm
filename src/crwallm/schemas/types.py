@@ -93,3 +93,14 @@ class RejectReason(StrEnum):
     PATTERN_BUDGET = "pattern_budget"
     URL_FILTER = "url_filter"
     MALFORMED = "malformed"
+
+    SOFT_404 = "soft_404"
+    """A 200 response that means "not found".
+
+    Added in Phase 5. The enum is append-only by design (Phase 1) because
+    these values are persisted; a new member is safe, a renamed one is a
+    migration.
+    """
+
+    CONTENT_DUPLICATE = "content_duplicate"
+    """Same content, different URL - what URL dedupe cannot see."""

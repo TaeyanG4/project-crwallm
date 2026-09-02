@@ -62,7 +62,9 @@ docker compose up -d db && alembic upgrade head && crwallm serve
 **Phase 1 — Contracts & Policy 완료.**
 **Phase 2 — Deterministic Crawl MVP 완료.**
 **Phase 3 — Structure & Recipe 완료.**
-**Phase 4 — LLM Runtime 완료.** 마일스톤 1 달성. 다음은 Phase 5 (Spider 모드).
+**Phase 4 — LLM Runtime 완료.**
+**Phase 5 — Spider 모드 완료.** **마일스톤 1 달성** (Phase 0~5).
+다음은 Phase 6 (추출 확장).
 
 ## 시작
 

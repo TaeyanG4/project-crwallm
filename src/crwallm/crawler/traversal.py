@@ -42,8 +42,10 @@ from crwallm.crawler.contracts import (
     FetchResponse,
     FrontierItem,
 )
+from crwallm.crawler.dedupe import ContentDeduper, SoftNotFoundDetector
 from crwallm.crawler.engine import EventPump
 from crwallm.crawler.frontier.memory import MemoryFrontier
+from crwallm.crawler.frontier.scheduler import HostFrontier, score_url
 from crwallm.policy.gate import UrlGate
 from crwallm.policy.url import NormalizedUrl, UrlNormalizationError, normalize
 from crwallm.schemas.events import (
@@ -60,7 +62,7 @@ from crwallm.schemas.events import (
     UrlRejected,
 )
 from crwallm.schemas.spec import CrawlSpec
-from crwallm.schemas.types import RejectReason
+from crwallm.schemas.types import ErrorKind, RejectReason
 from crwallm.storage.blob import ArchiveRef, BlobStore, NullBlobStore
 
 __all__ = ["CrawlDeps", "run_crawl"]
@@ -81,10 +83,19 @@ class CrawlDeps:
     """
 
     fetcher: Fetcher
-    frontier: MemoryFrontier
+    frontier: MemoryFrontier | HostFrontier
     gate: UrlGate
     extractor: Extractor
     archive: BlobStore | NullBlobStore
+
+    deduper: ContentDeduper | None = None
+    """Content-level duplicate detection. Absent in Collect mode, where a
+    handful of known pages cannot usefully collide."""
+
+    soft_404: SoftNotFoundDetector | None = None
+    """Pages that answer 200 and mean 404. A hit burns the URL pattern's
+    budget rather than the page, because one soft 404 means the whole shape
+    is generative (docs/05_SPIDER_ARCHITECTURE.md)."""
 
 
 async def run_crawl(
@@ -188,6 +199,7 @@ class _Crawl:
         )
 
         if isinstance(outcome, FetchFailure):
+            self._back_off(item, outcome)
             await self.pump.emit(
                 PageFailed(
                     url=item.url.url,
@@ -230,6 +242,17 @@ class _Crawl:
         if result.canonical_url:
             await self._note_canonical(item, result.canonical_url)
 
+        if await self._is_soft_404(item, result.text, len(result.records)):
+            # The page is kept - it was fetched and archived - but its URL
+            # shape is not explored further. One soft 404 means the pattern is
+            # generative, so the rest of it is the same page.
+            await self._maybe_progress()
+            return
+
+        if await self._is_duplicate(item, result.text):
+            await self._maybe_progress()
+            return
+
         if result.records:
             self.records_extracted += len(result.records)
             await self.pump.emit(
@@ -246,6 +269,71 @@ class _Crawl:
 
         del ref  # persisted by the sink; the loop only needed it stored
         await self._maybe_progress()
+
+    def _back_off(self, item: FrontierItem, failure: FetchFailure) -> None:
+        """Stand off from a host that refused.
+
+        Not etiquette - a blocked host produces nothing, so waiting is the
+        faster route to the data (docs/12_PERFORMANCE.md). The host's own
+        ``Retry-After`` is honoured when it sent one, because a site saying
+        how long to wait is the best information available.
+
+        Only the host-partitioned frontier can do this; the FIFO has nowhere
+        to put a per-host delay, and Collect mode does not need one.
+        """
+        frontier = self.deps.frontier
+        if not isinstance(frontier, HostFrontier):
+            return
+        if failure.error_kind not in (ErrorKind.BLOCKED_429, ErrorKind.BLOCKED_403):
+            return
+
+        delay = failure.retry_after_s if failure.retry_after_s is not None else 30.0
+        frontier.penalise(item.url.host, min(delay, 300.0))
+
+    # --------------------------------------------------------- spider checks
+
+    async def _is_soft_404(self, item: FrontierItem, text: str | None, records: int) -> bool:
+        """A 200 that means 404.
+
+        Burning the *pattern* rather than the URL is the point: a site that
+        renders an empty template for ``/product/{n}`` will do it for every n,
+        and stopping at one page would leave the other four hundred queued.
+        """
+        detector = self.deps.soft_404
+        if detector is None or not detector.check(text, records_found=records):
+            return False
+
+        pattern = self.deps.gate.traps.pattern_of(item.url)
+        self.deps.gate.traps.budget.exhaust(pattern)
+        await self.pump.emit(
+            PatternBudgetExhausted(pattern=pattern, limit=self.spec.spider.per_pattern_budget)
+        )
+        await self._reject(item.url.url, RejectReason.SOFT_404, "200 with no content")
+        return True
+
+    async def _is_duplicate(self, item: FrontierItem, text: str | None) -> bool:
+        """The same content under a different address.
+
+        URL dedupe never sees this: print views, mirrored paths and
+        pagination that ran off the end are all distinct URLs serving one
+        page (docs/05_SPIDER_ARCHITECTURE.md).
+        """
+        deduper = self.deps.deduper
+        if deduper is None:
+            return False
+
+        verdict = deduper.check(item.url.url, text)
+        if not verdict.is_duplicate:
+            return False
+
+        await self.pump.emit(
+            DuplicateDetected(
+                url=item.url.url,
+                duplicate_of=verdict.of_url or "",
+                via="content",
+            )
+        )
+        return True
 
     # ------------------------------------------------------------ discovery
 
@@ -283,7 +371,14 @@ class _Crawl:
             return False
 
         return await self.deps.frontier.add(
-            FrontierItem(url=url, depth=depth, discovered_from=discovered_from)
+            FrontierItem(
+                url=url,
+                depth=depth,
+                discovered_from=discovered_from,
+                # Scored on the way in, because that is where the information
+                # is: the priority queue only reorders what it was given.
+                priority=score_url(url.url, depth),
+            )
         )
 
     async def _note_canonical(self, item: FrontierItem, canonical: str) -> None:
@@ -322,5 +417,6 @@ class _Crawl:
                     pages_done=self.pages_fetched,
                     pages_queued=self.deps.frontier.pending,
                     records_total=self.records_extracted,
+                    hosts_active=getattr(self.deps.frontier, "hosts_active", 0),
                 )
             )
