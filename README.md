@@ -30,6 +30,36 @@ GPU가 부족하면 클라우드 API로 바꾸거나, 모델 없이 수동으로
 
 ## 설치
 
+### 프로그램으로 설치하기
+
+Python도 uv도 저장소도 없는 컴퓨터에서 쓸 사람은 이쪽입니다.
+빌드하면 `dist/CRWALLM/` 폴더가 나오고, **그 폴더만 있으면 어느 Windows PC에서든
+돌아갑니다.**
+
+```bash
+uv run python packaging/build.py
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File packaging\install.ps1
+```
+
+시작 메뉴와 바탕화면에 아이콘이 생기고, Windows **"앱 및 기능"**에도 등록되어
+거기서 제거할 수 있습니다. 관리자 권한이 필요 없습니다 — 사용자 폴더에만
+설치하고 레지스트리도 `HKCU`만 씁니다.
+
+- 크기 약 50 MB, 실행하면 **1초쯤**에 창이 뜹니다
+- 필요한 것: Windows 10 이상과 WebView2(대부분 Edge와 함께 이미 있습니다).
+  없으면 창이 그 사실과 받는 곳을 알려줍니다
+- **이 빌드는 HTTP로만 가져옵니다.** 스크립트로 그려지는 페이지는 빈 표가
+  나옵니다 — Playwright는 파이썬 패키지만 110 MB이고 브라우저는 그와 별개로
+  150 MB를 더 받아야 해서, 넣어도 얻는 게 없습니다. 그런 페이지가 필요하면
+  아래 소스 설치로 쓰세요
+- 빌드가 잘 됐는지 확인: `dist\CRWALLM\CRWALLM.exe --self-test`
+- 제거: `install.ps1 -Uninstall`, 또는 "앱 및 기능"에서
+
+### 소스에서 쓰기
+
 ```bash
 git clone https://github.com/TaeyanG4/project-crwallm.git
 cd project-crwallm
@@ -74,7 +104,8 @@ crwallm <명령>
 
 ## 바로 써보기
 
-**`crwallm.bat`을 더블클릭하세요.** 창이 하나 뜹니다. 그게 전부입니다.
+설치했다면 **시작 메뉴의 CRWALLM**, 소스에서 쓴다면
+**`crwallm.bat`을 더블클릭**하세요. 창이 하나 뜹니다. 그게 전부입니다.
 바탕화면에 두려면 우클릭 → 바로 가기 만들기.
 
 첫 실행만 설치하느라 1분쯤 걸리고, 그 다음부터는 바로 열립니다.

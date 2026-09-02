@@ -116,6 +116,47 @@ def test_the_icon_path_knows_it_is_the_icon_path(monkeypatch: pytest.MonkeyPatch
     assert said, "a launch that opened no window said nothing about why"
 
 
+SPEC = (ROOT / "packaging" / "crwallm.spec").read_text(encoding="utf-8")
+
+
+def test_the_build_puts_the_screen_where_the_app_looks_for_it() -> None:
+    """Two halves of one path, written in two files.
+
+    ``ui_root`` builds ``<bundle>/crwallm/desktop/ui`` and the spec decides
+    where PyInstaller unpacks it. Disagree and the packaged app opens a window
+    onto nothing - no error, no console, a blank white rectangle.
+    """
+    frozen = "C:/fake-bundle"
+    try:
+        desktop_app.sys._MEIPASS = frozen  # type: ignore[attr-defined]
+        inside = desktop_app.ui_root()
+    finally:
+        del desktop_app.sys._MEIPASS  # type: ignore[attr-defined]
+
+    relative = inside.relative_to(Path(frozen)).as_posix()
+    assert relative == "crwallm/desktop/ui"
+    assert f'"{relative}"' in SPEC, (
+        f"ui_root() reads {relative} out of the bundle; the spec must put it there"
+    )
+
+
+def test_the_build_has_no_console() -> None:
+    """Same reason the .bat hands off to a gui-scripts launcher."""
+    assert "console=False" in SPEC.replace(" ", "")
+
+
+def test_the_installer_carries_a_byte_order_mark() -> None:
+    """Windows PowerShell 5.1 reads a .ps1 without a BOM in the system
+    codepage, which turns every Korean line in the installer into mojibake -
+    the same trap that made the .bat ASCII-only, in the one file whose whole
+    job is to talk to the person installing."""
+    raw = (ROOT / "packaging" / "install.ps1").read_bytes()
+    assert raw.startswith(b"\xef\xbb\xbf"), (
+        "packaging/install.ps1 must be UTF-8 with a BOM, or PowerShell 5.1 "
+        "will read its Korean as the system codepage"
+    )
+
+
 def test_the_terminal_path_stays_quiet(monkeypatch: pytest.MonkeyPatch) -> None:
     """``crwallm desktop`` in a shell must not raise a dialog: there is a
     console right there, and a modal box in the middle of a shell session is
