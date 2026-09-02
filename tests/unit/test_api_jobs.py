@@ -49,6 +49,9 @@ class FakeJobStore:
             pages_crawled=overrides.pop("pages_crawled", 3),
             pages_failed=overrides.pop("pages_failed", 1),
             records_extracted=overrides.pop("records_extracted", 7),
+            # Explicit because SQLAlchemy applies column defaults at flush,
+            # and nothing here is flushed - an in-memory row leaves them None.
+            attempts=overrides.pop("attempts", 0),
             error_counts=overrides.pop("error_counts", {"blocked_429": 1}),
             reject_counts=overrides.pop("reject_counts", {"scope": 12}),
             created_at=datetime.now(UTC),
@@ -219,11 +222,17 @@ class TestRead:
         self, client: TestClient, store: FakeJobStore
     ) -> None:
         """The response model is not the row. Adding a column must not silently
-        publish it."""
+        publish it - each one is a deliberate choice.
+
+        ``cancel_requested_at`` used to be on this list and is now published on
+        purpose: it is the whole difference between "running" and "stopping",
+        and without it a caller cannot tell that a cancel was asked for and
+        the worker has not reached its next page yet.
+        """
         job = store.add_job()
         body = client.get(f"/api/jobs/{job.id}").json()
         assert "spec_id" not in body
-        assert "cancel_requested_at" not in body
+        assert "cancel_requested_at" in body
 
     def test_listing_filters_by_status(self, client: TestClient, store: FakeJobStore) -> None:
         store.add_job(status=JobStatus.COMPLETED)

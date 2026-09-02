@@ -235,12 +235,34 @@ auto(서버 렌더 페이지)  0.79s   <- 브라우저를 열지 않음
 
 ---
 
-## Phase 8 — Durability & Observability
+## Phase 8 — Durability & Observability  ✅
 
-- retry, stale recovery, resume, 영속 checkpoint, idempotency
-- SSE, cancel, heartbeat
-- export — JSONL / CSV / Parquet
-- 관측 — 에러 분류 대시보드, 처리량/차단률 지표
+- ✅ **cancel** — 요청이지 kill이 아니다. 워커가 페이지 사이에서 읽는다
+- ✅ **stale recovery** — heartbeat이 끊긴 job을 재큐잉, 3회 후 실패 처리
+- ✅ **retry** — 처음부터 다시. 카운터는 초기화, 레코드는 유지
+- ✅ **heartbeat** — 이미 쓰이고 있었고, 이제 읽는 쪽이 생겼다
+- ✅ **SSE** — Phase 6에서 완료
+- ✅ **export** — JSONL / CSV, 스트리밍
+- ✅ **idempotency** — `(job_id, page_url, record_hash)` 유니크 제약
+- ⬜ **resume** — 아래 참조
+- ⬜ Parquet — 아래 참조
+
+### Phase 8에서 확정된 것
+
+| 결정 | 근거 |
+|---|---|
+| cancel은 **요청**이지 kill이 아님 | 태스크를 죽이면 이미 추출한 레코드와 아카이브를 잃는다. 실측: 53페이지에서 요청 → 70페이지 206레코드로 정착 |
+| stale은 **재큐잉**, 실패 아님 | 정전으로 죽은 job은 실패 행보다 재시도를 받을 자격이 있다. 유니크 제약이 중복 쓰기를 무해하게 만든다 |
+| 3회 후에는 실패 | 워커 셋이 죽은 job은 운이 없는 게 아니다. 영원히 재큐잉하면 큐가 같이 죽는다 |
+| reaper는 **유휴 워커**가 돌림 | 할 일 없는 워커가 버려진 일을 찾기에 가장 적합하다. 로컬 도구가 일관성을 위해 데몬을 하나 더 요구하면 더 나쁜 도구다 |
+| export는 `seq` 기준 keyset | `(created_at, id)`는 순서를 못 준다 — sink는 배치로 쓰고 Postgres `now()`는 트랜잭션 시작 시각이라 배치 전체가 같은 타임스탬프를 갖는다 |
+| CSV 컬럼은 **전체 행**에서 도출 | 마지막 페이지에만 나오는 필드가 빠진 파일은 느린 헤더보다 나쁘다 — 완전해 보인다 |
+| 출처 컬럼은 **덧붙임** | 레시피에 `page_url` 필드가 있을 수 있고, 덮어쓰면 하류가 탐지할 수 없게 망가진다 |
+| **Parquet 미구현** | pyarrow 40MB + 빌드 툴체인을, 로컬 워크플로에서 아무도 열지 않는 포맷을 위해. JSONL/CSV에서 필요한 쪽이 변환하면 된다 |
+| **resume 미구현** | 영속 frontier가 필요한데, 실측된 필요가 없다. 실행은 초 단위로 끝나고 retry가 충분하다. 시간 단위 크롤을 만나면 그때 |
+
+**실측** — UI에서 취소: 48페이지 169레코드가 그대로 남고 export 가능.
+재시도: `attempts` 2로 증가, 카운터 0에서 재시작.
 
 ---
 

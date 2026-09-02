@@ -2,7 +2,7 @@
 
 import { use, useState } from "react";
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { api, exportUrl } from "@/lib/api";
 import { bytes, cn, duration, shortUrl } from "@/lib/format";
 import { EventFeed } from "@/components/EventFeed";
 import { RecordTable } from "@/components/RecordTable";
@@ -21,6 +21,7 @@ export default function JobPage({ params }: PageProps<"/jobs/[id]">) {
   const { id } = use(params);
   const [tab, setTab] = useState<Tab>("records");
   const [polling, setPolling] = useState(true);
+  const [busy, setBusy] = useState(false);
 
   const job = usePolled<JobDetail>(() => api.getJob(id), polling ? POLL_MS : null, [id, polling]);
   const stream = useJobStream(id, true);
@@ -77,6 +78,8 @@ export default function JobPage({ params }: PageProps<"/jobs/[id]">) {
             <span className="text-xs text-muted-foreground">
               {duration(detail?.started_at ?? null, detail?.completed_at ?? null)}
             </span>
+
+            {detail && <JobActions job={detail} busy={busy} setBusy={setBusy} refresh={job.refresh} />}
           </div>
         </div>
       </div>
@@ -123,6 +126,82 @@ export default function JobPage({ params }: PageProps<"/jobs/[id]">) {
           <EventFeed events={stream.events} connected={stream.connected} ended={stream.ended} />
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Stop, run again, take the data away.
+ *
+ * Which of these is offered depends on the state, because pressing the wrong
+ * one is refused by the API anyway and a button that always errors is worse
+ * than no button. Export is always available - a cancelled crawl's records
+ * are still records, which is the whole reason cancelling keeps them.
+ */
+function JobActions({
+  job,
+  busy,
+  setBusy,
+  refresh,
+}: {
+  job: JobDetail;
+  busy: boolean;
+  setBusy: (value: boolean) => void;
+  refresh: () => void;
+}) {
+  const finished = TERMINAL_STATUSES.includes(job.status);
+  const stopping = !finished && job.cancel_requested_at !== null;
+
+  const act = async (fn: () => Promise<unknown>) => {
+    setBusy(true);
+    try {
+      await fn();
+      refresh();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      {!finished && (
+        <button
+          type="button"
+          disabled={busy || stopping}
+          onClick={() => void act(() => api.cancel(job.id))}
+          className="rounded-md border px-2.5 py-1 text-xs disabled:opacity-50"
+        >
+          {stopping ? "중지 중…" : "중지"}
+        </button>
+      )}
+
+      {finished && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void act(() => api.retry(job.id))}
+          className="rounded-md border px-2.5 py-1 text-xs disabled:opacity-50"
+        >
+          다시 실행
+        </button>
+      )}
+
+      {job.records_extracted > 0 && (
+        <>
+          <a
+            href={exportUrl(job.id, "csv", true)}
+            className="rounded-md border px-2.5 py-1 text-xs hover:bg-muted"
+          >
+            CSV
+          </a>
+          <a
+            href={exportUrl(job.id, "jsonl", true)}
+            className="rounded-md border px-2.5 py-1 text-xs hover:bg-muted"
+          >
+            JSONL
+          </a>
+        </>
+      )}
     </div>
   );
 }

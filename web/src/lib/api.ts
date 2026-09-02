@@ -76,6 +76,10 @@ export const api = {
 
   getRecipe: (name: string) => request<RecipeDetail>(`/recipes/${encodeURIComponent(name)}`),
 
+  cancel: (id: string) => request<JobDetail>(`/jobs/${id}/cancel`, { method: "POST" }),
+
+  retry: (id: string) => request<JobDetail>(`/jobs/${id}/retry`, { method: "POST" }),
+
   submit: (spec: CrawlRequest, priority = 0) =>
     request<{ id: string; status: string; created_at: string }>("/jobs", {
       method: "POST",
@@ -83,6 +87,11 @@ export const api = {
       body: JSON.stringify({ spec, priority }),
     }),
 };
+
+/** A download URL, not a fetch: the file streams and the browser saves it. */
+export function exportUrl(jobId: string, format: "jsonl" | "csv", withSource = false): string {
+  return `${BASE}/jobs/${jobId}/export?format=${format}&include_source=${withSource}`;
+}
 
 /** The SSE endpoint for one job, through the proxy. */
 export function streamUrl(jobId: string, after = 0): string {

@@ -25,6 +25,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Identity,
     Index,
     Integer,
     String,
@@ -121,6 +122,14 @@ class CrawlJob(Base):
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    """How many times this job has been started.
+
+    Incremented by requeueing - a stale reap or an explicit retry - not by
+    claiming, so it counts *attempts that ended badly* rather than attempts.
+    A job three workers have died on is not unlucky, and requeueing it forever
+    would take the queue down with it."""
+
     pages_crawled: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     pages_failed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     records_extracted: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -195,6 +204,23 @@ class ExtractedRecord(Base):
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
+
+    seq: Mapped[int] = mapped_column(
+        BigInteger, Identity(always=False), nullable=False, unique=True
+    )
+    """Insertion order, and the export cursor.
+
+    ``created_at`` cannot do this job. The sink writes records in batches and
+    Postgres's ``now()`` is the *transaction's* start time, so every record in
+    one batch shares a timestamp and the only tiebreaker left is a random
+    UUID - which shuffles a crawl's output within each batch. Found by
+    exporting five hundred rows and getting them back in no order at all.
+
+    Same reasoning as ``crawl_events.id``: a cursor needs an ordering, and a
+    random id has none. ``Identity`` rather than ``autoincrement=True``,
+    which only generates a sequence for a primary key - on any other column
+    it is a reflection hint and the table ends up with no default at all."""
+
     job_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("crawl_jobs.id", ondelete="CASCADE"), nullable=False
     )

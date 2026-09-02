@@ -71,7 +71,10 @@ async function proxy(request: NextRequest, path: string[]): Promise<Response> {
   }
 
   const responseHeaders = new Headers();
-  for (const key of ["content-type", "cache-control"]) {
+  // `content-disposition` matters: without it an export arrives as a document
+  // the browser tries to render rather than a file it saves, and the
+  // filename the backend chose is lost.
+  for (const key of ["content-type", "cache-control", "content-disposition"]) {
     const value = upstream.headers.get(key);
     if (value) responseHeaders.set(key, value);
   }

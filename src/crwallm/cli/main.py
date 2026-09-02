@@ -1003,6 +1003,109 @@ async def _jobs_results(job_id: str, limit: int) -> list[str]:
         await dispose_engine()
 
 
+@jobs_app.command("cancel")
+def jobs_cancel(job_id: Annotated[str, typer.Argument(help="Job id")]) -> None:
+    """Ask a running crawl to stop.
+
+    A request, not a kill: the worker reads it between pages, so the records
+    already extracted and the archive already written both survive.
+    """
+    asyncio.run(_job_action(job_id, "cancel"))
+
+
+@jobs_app.command("retry")
+def jobs_retry(job_id: Annotated[str, typer.Argument(help="Job id")]) -> None:
+    """Run a finished job again from the beginning.
+
+    Different from resume: this is the answer when the *reason* it failed has
+    been fixed, and starting over is what makes the result trustworthy.
+    """
+    asyncio.run(_job_action(job_id, "retry"))
+
+
+@jobs_app.command("export")
+def jobs_export(
+    job_id: Annotated[str, typer.Argument(help="Job id")],
+    fmt: Annotated[str, typer.Option("--format", "-f", help="jsonl | csv")] = "jsonl",
+    output: Annotated[Path | None, typer.Option("--output", "-o")] = None,
+    include_source: Annotated[
+        bool,
+        typer.Option("--source", help="Add the page each row came from and the extractor"),
+    ] = False,
+) -> None:
+    """Write a job's records to a file, or to stdout.
+
+    Streamed the whole way. A job with half a million records is written a
+    chunk at a time and never held in memory.
+    """
+    asyncio.run(_jobs_export(job_id, fmt, output, include_source))
+
+
+async def _job_action(job_id: str, action: str) -> None:
+    from uuid import UUID
+
+    from crwallm.db.session import dispose_engine, get_sessionmaker
+    from crwallm.services.job import JobService
+
+    try:
+        async with get_sessionmaker()() as session:
+            service = JobService(session)
+            if await service.get(UUID(job_id)) is None:
+                _err(f"no job {job_id}")
+                raise typer.Exit(1)
+
+            ok = (
+                await service.request_cancel(UUID(job_id))
+                if action == "cancel"
+                else await service.retry(UUID(job_id))
+            )
+            if not ok:
+                _err(
+                    "job has already finished"
+                    if action == "cancel"
+                    else "only a finished job can be retried"
+                )
+                raise typer.Exit(1)
+
+            job = await service.get(UUID(job_id))
+            assert job is not None
+            typer.echo(f"{job_id[:8]}  {job.status}")
+    finally:
+        await dispose_engine()
+
+
+async def _jobs_export(job_id: str, fmt: str, output: Path | None, include_source: bool) -> None:
+    from uuid import UUID
+
+    from crwallm.db.session import dispose_engine, get_sessionmaker
+    from crwallm.services.export import EXPORT_FORMATS, export_records
+
+    if fmt not in EXPORT_FORMATS:
+        _err(f"unknown format {fmt!r}; expected one of {list(EXPORT_FORMATS)}")
+        raise typer.Exit(1)
+
+    written = 0
+    try:
+        async with get_sessionmaker()() as session:
+            stream = export_records(session, UUID(job_id), fmt, include_source=include_source)
+            if output is None:
+                async for chunk in stream:
+                    typer.echo(chunk, nl=False)
+                    written += 1
+                return
+
+            output.parent.mkdir(parents=True, exist_ok=True)
+            # Written as it arrives rather than joined: the point of streaming
+            # is that the whole file never exists in memory.
+            with output.open("w", encoding="utf-8", newline="") as handle:
+                async for chunk in stream:
+                    handle.write(chunk)
+                    written += 1
+            typer.echo(f"wrote {output}")
+    finally:
+        await dispose_engine()
+
+
 def _emit_lines(lines: list[str], output: Path | None) -> None:
     if output:
         _write_lines(lines, output)

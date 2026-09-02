@@ -74,6 +74,8 @@ class Worker:
         try:
             while not self._stopping.is_set():
                 claimed = await self.run_once()
+                if not claimed:
+                    await self.reap()
                 if not claimed and not self._stopping.is_set():
                     await self._sleep_or_stop(self._poll_s)
         finally:
@@ -110,9 +112,27 @@ class Worker:
                 await jobs.mark_failed(job.id, ErrorKind.CONFIG.value, str(exc))
                 return True
 
+            cancelled = False
+
+            async def should_cancel() -> bool:
+                """Read between pages, on a session of its own.
+
+                The request is written by the API in another process, so the
+                worker's own session - which is mid-transaction writing this
+                crawl's events - would never see it. Polled rather than
+                pushed: a crawl is a loop over pages, and "check the note
+                between pages" needs no second channel.
+                """
+                nonlocal cancelled
+                if cancelled:
+                    return True
+                async with sessionmaker() as watcher:
+                    cancelled = await JobService(watcher).cancel_requested(job.id)
+                return cancelled
+
             try:
                 async with open_crawl(plan, archive_dir=self._archive_dir) as events:
-                    await drain_to(events, sink)
+                    await drain_to(events, sink, should_cancel=should_cancel)
             except Exception as exc:
                 # A job that dies must not take the worker with it, and must
                 # not be left looking like it is still running.
@@ -123,6 +143,14 @@ class Worker:
                 )
                 return True
 
+            if cancelled:
+                # `drain_to` stops the stream but the sink has already written
+                # a terminal status of its own; overwrite it so the log says
+                # what actually happened.
+                await jobs.mark_cancelled(job.id)
+                log.info("job %s cancelled after %d pages", job.id, sink.pages_crawled)
+                return True
+
         log.info(
             "job %s finished: %d pages, %d records",
             job.id,
@@ -130,6 +158,23 @@ class Worker:
             sink.records_extracted,
         )
         return True
+
+    async def reap(self) -> int:
+        """Requeue jobs whose worker stopped reporting.
+
+        Run by the idle loop rather than by a separate process. A worker with
+        nothing to do is exactly the one that should be looking for abandoned
+        work, and a crawler that needed a second daemon to stay consistent
+        would be a worse tool for a local machine.
+        """
+        sessionmaker = get_sessionmaker()
+        async with sessionmaker() as session:
+            reaped = await JobService(session).reap_stale()
+        if reaped:
+            log.warning(
+                "requeued %d abandoned job(s): %s", len(reaped), [str(j)[:8] for j in reaped]
+            )
+        return len(reaped)
 
 
 def main() -> None:

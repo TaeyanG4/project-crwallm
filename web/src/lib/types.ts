@@ -23,6 +23,10 @@ export interface JobSummary {
 
 export interface JobDetail extends JobSummary {
   worker_id: string | null;
+  attempts: number;
+  /** Set the moment a stop is asked for. The job stays `running` until the
+   *  worker reads it between pages, which is the "stopping" state. */
+  cancel_requested_at: string | null;
   heartbeat_at: string | null;
   error_kind: string | null;
   error_message: string | null;

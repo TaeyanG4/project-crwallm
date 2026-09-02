@@ -41,6 +41,12 @@ from crwallm.api.schemas import (
 )
 from crwallm.db.models import CrawlEventRow, CrawlResult, ExtractedRecord, JobStatus
 from crwallm.policy.domains import InvalidDomainError
+from crwallm.services.export import (
+    EXPORT_FORMATS,
+    content_type_for,
+    export_records,
+    filename_for,
+)
 from crwallm.services.job import JobService
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -303,4 +309,79 @@ async def stream_events(
             # turns a live feed into one delivery at the end.
             "X-Accel-Buffering": "no",
         },
+    )
+
+
+@router.post("/{job_id}/cancel", response_model=JobDetail, dependencies=[Depends(token_dep)])
+async def cancel(job_id: UUID, session: Session) -> JobDetail:
+    """Ask a running crawl to stop.
+
+    202-ish semantics with a 200 body: the note is written now and the worker
+    reads it between pages, so a job that was running comes back still
+    ``running`` and settles a moment later. Returning the row rather than an
+    empty body lets the caller see which of the two happened.
+    """
+    service = JobService(session)
+    if await service.get(job_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such job")
+
+    if not await service.request_cancel(job_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="job has already finished",
+        )
+
+    job = await service.get(job_id)
+    assert job is not None
+    return JobDetail.model_validate(job)
+
+
+@router.post("/{job_id}/retry", response_model=JobDetail, dependencies=[Depends(token_dep)])
+async def retry(job_id: UUID, session: Session) -> JobDetail:
+    """Run a finished job again from the beginning.
+
+    Counters reset; records do not. Re-collecting a page writes the same rows
+    and the unique constraint absorbs them, which is what makes this safe to
+    press twice (docs/09_JOB_ARCHITECTURE.md).
+    """
+    service = JobService(session)
+    if await service.get(job_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such job")
+
+    if not await service.retry(job_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="only a finished job can be retried",
+        )
+
+    job = await service.get(job_id)
+    assert job is not None
+    return JobDetail.model_validate(job)
+
+
+@router.get("/{job_id}/export")
+async def export(
+    job_id: UUID,
+    session: Session,
+    fmt: Annotated[str, Query(alias="format")] = "jsonl",
+    include_source: Annotated[bool, Query()] = False,
+) -> StreamingResponse:
+    """Download a job's records.
+
+    Streamed, and a download rather than a page: half a million records must
+    not be assembled in memory on either side, and a browser asked to render
+    them as a document would try.
+    """
+    if fmt not in EXPORT_FORMATS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"unknown format {fmt!r}; expected one of {list(EXPORT_FORMATS)}",
+        )
+    if await JobService(session).get(job_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such job")
+
+    return StreamingResponse(
+        export_records(session, job_id, fmt, include_source=include_source),
+        media_type=content_type_for(fmt),
+        headers={"Content-Disposition": f'attachment; filename="{filename_for(job_id, fmt)}"'},
     )

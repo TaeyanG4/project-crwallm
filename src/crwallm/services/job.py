@@ -13,16 +13,31 @@ the bottleneck, and not before (docs/17_NON_GOALS.md).
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from crwallm.db.models import CrawlJob, CrawlSpecRow, JobStatus
 from crwallm.schemas.spec import CrawlSpec
+from crwallm.schemas.types import ErrorKind
 
 __all__ = ["JobService"]
+
+
+STALE_AFTER_S = 120.0
+"""How long without a heartbeat before a job is assumed abandoned.
+
+Comfortably longer than the sink's flush interval, so a worker that is merely
+busy on one very slow page is not reaped out from under itself. Shorter than
+anyone's patience for a stuck job."""
+
+MAX_ATTEMPTS = 3
+"""How many times a job may be requeued before it is called failed.
+
+A job that three workers have died on is not unlucky; something about it kills
+workers, and requeueing it forever would take the queue down with it."""
 
 
 class JobService:
@@ -119,3 +134,126 @@ class JobService:
             update(CrawlJob).where(CrawlJob.id == job_id).values(heartbeat_at=datetime.now(UTC))
         )
         await self._session.commit()
+
+    # ------------------------------------------------------------ durability
+
+    async def request_cancel(self, job_id: UUID) -> bool:
+        """Ask a job to stop. Returns False if it already had.
+
+        A request, not an act. A queued job can be cancelled outright, but a
+        running one is inside somebody else's event loop and the only honest
+        thing to do is leave a note the worker will read between pages. The
+        alternative - killing the task - loses the records already extracted
+        and the archive already written (docs/09_JOB_ARCHITECTURE.md).
+        """
+        job = await self._session.get(CrawlJob, job_id)
+        if job is None or job.status in JobStatus.TERMINAL:
+            return False
+
+        now = datetime.now(UTC)
+        job.cancel_requested_at = now
+        if job.status == JobStatus.QUEUED:
+            # Nothing is running it, so there is nobody to notice the note.
+            job.status = JobStatus.CANCELLED
+            job.completed_at = now
+        await self._session.commit()
+        return True
+
+    async def cancel_requested(self, job_id: UUID) -> bool:
+        """Whether a stop has been asked for.
+
+        Read between pages by the worker. Its own session, and a fresh read
+        every time: the request is written by the API in a different process,
+        so a cached row would never show it.
+        """
+        result = await self._session.execute(
+            select(CrawlJob.cancel_requested_at).where(CrawlJob.id == job_id)
+        )
+        return result.scalar_one_or_none() is not None
+
+    async def mark_cancelled(self, job_id: UUID) -> None:
+        await self._session.execute(
+            update(CrawlJob)
+            .where(CrawlJob.id == job_id, CrawlJob.status == JobStatus.RUNNING)
+            .values(status=JobStatus.CANCELLED, completed_at=datetime.now(UTC))
+        )
+        await self._session.commit()
+
+    async def reap_stale(self, *, older_than_s: float = STALE_AFTER_S) -> list[UUID]:
+        """Return jobs whose worker stopped reporting to the queue.
+
+        A worker that is killed - a crash, a laptop lid, a container
+        rescheduled - leaves its job in ``running`` forever, indistinguishable
+        from one that is merely slow. The heartbeat is what tells them apart,
+        and this is the only thing that reads it.
+
+        Requeued rather than failed. The records already written stay, the
+        unique constraint on ``(job_id, page_url, record_hash)`` makes writing
+        them again a no-op, and a job that died to a power cut deserves
+        another attempt more than it deserves a failure row.
+        """
+        cutoff = datetime.now(UTC) - timedelta(seconds=older_than_s)
+        stale = (
+            await self._session.execute(
+                select(CrawlJob)
+                .where(
+                    CrawlJob.status == JobStatus.RUNNING,
+                    # A job claimed but never heartbeaten is stale too: the
+                    # worker died between claiming and its first flush.
+                    func.coalesce(CrawlJob.heartbeat_at, CrawlJob.started_at) < cutoff,
+                )
+                .with_for_update(skip_locked=True)
+            )
+        ).scalars()
+
+        reaped: list[UUID] = []
+        for job in stale:
+            job.status = JobStatus.QUEUED
+            job.worker_id = None
+            job.started_at = None
+            job.heartbeat_at = None
+            job.attempts += 1
+            if job.attempts > MAX_ATTEMPTS:
+                job.status = JobStatus.FAILED
+                job.error_kind = ErrorKind.INTERNAL.value
+                job.error_message = (
+                    f"abandoned by a worker {job.attempts} times; not requeued again"
+                )
+                job.completed_at = datetime.now(UTC)
+            reaped.append(job.id)
+
+        if reaped:
+            await self._session.commit()
+        return reaped
+
+    async def retry(self, job_id: UUID) -> bool:
+        """Run a finished job again, from the beginning.
+
+        Distinct from resume, which continues from where a crawl stopped.
+        Retry is the honest answer when the *reason* it failed has been fixed
+        - a recipe corrected, a site back up - and starting over is what makes
+        the result trustworthy (docs/09_JOB_ARCHITECTURE.md).
+
+        The counters reset; the records do not. Re-collecting a page writes
+        the same rows, and the unique constraint absorbs them.
+        """
+        job = await self._session.get(CrawlJob, job_id)
+        if job is None or job.status not in JobStatus.TERMINAL:
+            return False
+
+        job.status = JobStatus.QUEUED
+        job.worker_id = None
+        job.started_at = None
+        job.completed_at = None
+        job.heartbeat_at = None
+        job.cancel_requested_at = None
+        job.error_kind = None
+        job.error_message = None
+        job.pages_crawled = 0
+        job.pages_failed = 0
+        job.records_extracted = 0
+        job.error_counts = {}
+        job.reject_counts = {}
+        job.attempts += 1
+        await self._session.commit()
+        return True

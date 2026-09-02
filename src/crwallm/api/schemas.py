@@ -77,6 +77,8 @@ class JobSummary(BaseModel):
 
 class JobDetail(JobSummary):
     worker_id: str | None = None
+    attempts: int = 0
+    cancel_requested_at: datetime | None = None
     heartbeat_at: datetime | None = None
     error_kind: str | None = None
     error_message: str | None = None
