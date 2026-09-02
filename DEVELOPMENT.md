@@ -11,9 +11,22 @@
 ## 초기 설정
 
 ```bash
-uv venv --python 3.12
-uv pip install -e ".[dev]"
+uv sync --extra dev
 cp .env.example .env
+```
+
+`--extra dev`가 pytest·ruff·mypy를 함께 넣습니다. **빼면 제거됩니다** —
+`uv sync`는 선언된 것에 환경을 맞추는 것이지 더하기만 하는 것이 아닙니다.
+
+`uv venv`를 따로 부르지 마세요. `uv sync`가 가상환경을 만들고, 이미 있으면
+갱신합니다. `uv venv`는 기존 `.venv`를 지웠다 다시 만들려 하는데 Windows에서
+그 삭제가 실패하는 경우가 있습니다.
+
+명령은 `uv run crwallm ...` 또는 활성화 후 `crwallm ...`:
+
+```bash
+source .venv/Scripts/activate      # Windows (Git Bash)
+source .venv/bin/activate          # macOS / Linux
 ```
 
 `.env`의 `CRWALLM_API_TOKEN`을 생성한 값으로 바꿉니다.
