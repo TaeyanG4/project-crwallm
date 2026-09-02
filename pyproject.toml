@@ -15,6 +15,19 @@ dependencies = [
     "alembic>=1.14",
     "typer>=0.15",
     "httpx[http2,brotli,zstd]>=0.28",
+    # Imported directly, not merely used through httpx: the DNS-pinning
+    # transport subclasses its network backend.
+    "httpcore>=1.0",
+    # Imported directly for the Host-header middleware, rather than reached
+    # through FastAPI.
+    "starlette>=0.40",
+    # The archive's compressor. httpx[zstd] happens to pull it, but that is
+    # for decoding responses and could stop being true.
+    "zstandard>=0.23",
+    # The HTML parser everything above `extraction` is written against. It was
+    # missing from this list while being imported by six modules, so a clean
+    # install failed on the first page it tried to parse.
+    "selectolax>=0.3.21",
     "tldextract>=5.1",
     "pyyaml>=6.0",
     "rbloom>=1.5",
