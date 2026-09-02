@@ -19,9 +19,14 @@ from crwallm.schemas.spec import CrawlSpec
 
 __all__ = [
     "JobDetail",
+    "JobEvent",
     "JobSubmitRequest",
     "JobSubmitted",
     "JobSummary",
+    "PageRow",
+    "PageRowList",
+    "RecipeDetail",
+    "RecipeSummary",
     "RecordPage",
 ]
 
@@ -97,3 +102,75 @@ class RecordPage(BaseModel):
     offset: int
     limit: int
     records: list[dict[str, Any]]
+
+
+class JobEvent(BaseModel):
+    """One row of a job's event log.
+
+    ``id`` is a monotonic integer rather than a UUID because it doubles as the
+    SSE cursor: a browser that reconnects sends the last id it saw and expects
+    the stream to resume after it.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    event_type: str
+    payload: dict[str, Any]
+    created_at: datetime
+
+
+class PageRow(BaseModel):
+    """A page the crawl actually fetched.
+
+    Distinct from an extracted record: a crawl can fetch two hundred pages and
+    extract from twelve, and when that happens the operator needs to see the
+    other one hundred and eighty-eight to find out why.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    url: str
+    final_url: str | None = None
+    status_code: int | None = None
+    content_type: str | None = None
+    content_length: int | None = None
+    depth: int
+    elapsed_ms: int | None = None
+    error_kind: str | None = None
+    error_message: str | None = None
+    created_at: datetime
+
+
+class PageRowList(BaseModel):
+    job_id: UUID
+    total_returned: int
+    offset: int
+    limit: int
+    pages: list[PageRow]
+
+
+class RecipeSummary(BaseModel):
+    """A recipe as the UI lists it.
+
+    The quality numbers travel with the summary because "active" on its own is
+    an assertion; "active, 10 records, 100% fill" is the evidence for it, and
+    a list that hides the evidence invites trusting a stale recipe.
+    """
+
+    name: str
+    version: int
+    status: str
+    source_url: str
+    allowed_domains: list[str]
+    container: str | None = None
+    field_names: list[str]
+    record_count: int
+    mean_fill: float
+    measured_at: datetime | None = None
+
+
+class RecipeDetail(RecipeSummary):
+    fields: list[dict[str, Any]]
+    fingerprint: str | None = None
+    notes: str | None = None

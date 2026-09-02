@@ -16,28 +16,36 @@ useless for no gain.
 
 from __future__ import annotations
 
+import asyncio
+import json
+from collections.abc import AsyncIterator
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from crwallm.api.deps import session_dep, token_dep
+from crwallm.api.deps import session_dep, sessionmaker_dep, token_dep
 from crwallm.api.schemas import (
     JobDetail,
+    JobEvent,
     JobSubmitRequest,
     JobSubmitted,
     JobSummary,
+    PageRow,
+    PageRowList,
     RecordPage,
 )
-from crwallm.db.models import ExtractedRecord, JobStatus
+from crwallm.db.models import CrawlEventRow, CrawlResult, ExtractedRecord, JobStatus
 from crwallm.policy.domains import InvalidDomainError
 from crwallm.services.job import JobService
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 Session = Annotated[AsyncSession, Depends(session_dep)]
+SessionFactory = Annotated[async_sessionmaker[AsyncSession], Depends(sessionmaker_dep)]
 
 
 @router.post(
@@ -125,4 +133,172 @@ async def get_results(
         offset=offset,
         limit=limit,
         records=records,
+    )
+
+
+@router.get("/{job_id}/pages", response_model=PageRowList)
+async def get_pages(
+    job_id: UUID,
+    session: Session,
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> PageRowList:
+    """What the crawl fetched, as opposed to what it extracted.
+
+    A crawl that reports "200 pages, 0 records" is answered here and nowhere
+    else: the pages are all 200s and the recipe missed, or they are all 404s
+    and the seeds were wrong. The records endpoint cannot tell those apart.
+    """
+    if await JobService(session).get(job_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such job")
+
+    rows = (
+        await session.execute(
+            select(CrawlResult)
+            .where(CrawlResult.job_id == job_id)
+            .order_by(CrawlResult.created_at, CrawlResult.id)
+            .offset(offset)
+            .limit(limit)
+        )
+    ).scalars()
+
+    pages = [PageRow.model_validate(r) for r in rows]
+    return PageRowList(
+        job_id=job_id, total_returned=len(pages), offset=offset, limit=limit, pages=pages
+    )
+
+
+@router.get("/{job_id}/events", response_model=list[JobEvent])
+async def get_events(
+    job_id: UUID,
+    session: Session,
+    after: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=1000)] = 200,
+) -> list[JobEvent]:
+    """The event log as a plain page, for a caller that does not want a stream."""
+    if await JobService(session).get(job_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such job")
+
+    rows = (
+        await session.execute(
+            select(CrawlEventRow)
+            .where(CrawlEventRow.job_id == job_id, CrawlEventRow.id > after)
+            .order_by(CrawlEventRow.id)
+            .limit(limit)
+        )
+    ).scalars()
+    return [JobEvent.model_validate(r) for r in rows]
+
+
+SSE_POLL_S = 0.5
+SSE_IDLE_TIMEOUT_S = 900.0
+
+
+async def _event_stream(
+    sessionmaker: async_sessionmaker[AsyncSession], job_id: UUID, cursor: int
+) -> AsyncIterator[str]:
+    """Tail one job's event log.
+
+    Polling rather than LISTEN/NOTIFY: the writer is a separate process
+    batching its inserts, so a notification would only ever say "look again",
+    which is what a half-second poll already does. This is a local
+    single-user tool - one cheap indexed query per client per tick is not a
+    load worth engineering around (docs/09_JOB_ARCHITECTURE.md).
+
+    Each message carries its row id as the SSE ``id:`` field, so a browser
+    that drops the connection reconnects with ``Last-Event-ID`` and resumes
+    rather than replaying the crawl from the beginning.
+
+    Its own session, not the request's: this outlives the handler, and
+    holding the request's session open for the life of the stream would
+    keep a connection checked out of the pool for as long as the crawl runs.
+    """
+    waited = 0.0
+
+    while True:
+        async with sessionmaker() as session:
+            # Status first, events second, and the order is load-bearing.
+            # The worker writes a batch of events and the terminal status in
+            # one transaction. Reading events first would let that commit land
+            # between the two queries: no new rows, job already finished, and
+            # the stream would end having dropped the events it just missed -
+            # including JobCompleted. Read the other way round and a status
+            # that says "finished" guarantees the events are already visible.
+            job = await JobService(session).get(job_id)
+            finished = job is None or job.status in JobStatus.TERMINAL
+            rows = list(
+                (
+                    await session.execute(
+                        select(CrawlEventRow)
+                        .where(CrawlEventRow.job_id == job_id, CrawlEventRow.id > cursor)
+                        .order_by(CrawlEventRow.id)
+                        .limit(500)
+                    )
+                ).scalars()
+            )
+
+        for row in rows:
+            cursor = row.id
+            body = json.dumps(
+                {
+                    "id": row.id,
+                    "event_type": row.event_type,
+                    "payload": row.payload,
+                    "created_at": row.created_at.isoformat(),
+                },
+                ensure_ascii=False,
+            )
+            yield f"id: {row.id}\nevent: {row.event_type}\ndata: {body}\n\n"
+
+        if rows:
+            waited = 0.0
+        else:
+            # Nothing new and the job was already finished when we looked:
+            # the log is drained.
+            if finished:
+                yield "event: end\ndata: {}\n\n"
+                return
+            if waited >= SSE_IDLE_TIMEOUT_S:
+                yield "event: timeout\ndata: {}\n\n"
+                return
+            # A comment frame, not an event: it keeps proxies and the browser
+            # from closing an idle connection without being mistaken for data.
+            yield ": keepalive\n\n"
+            await asyncio.sleep(SSE_POLL_S)
+            waited += SSE_POLL_S
+
+
+@router.get("/{job_id}/stream")
+async def stream_events(
+    job_id: UUID,
+    session: Session,
+    sessionmaker: SessionFactory,
+    last_event_id: Annotated[str | None, Header(alias="Last-Event-ID")] = None,
+    after: Annotated[int, Query(ge=0)] = 0,
+) -> StreamingResponse:
+    """Server-sent events for one job, live.
+
+    Polling ``GET /api/jobs/{id}`` shows counters moving but never says what
+    the crawl is doing. This is the difference between "37 pages" and "37
+    pages, currently on /shop/page/4, three rejected as out of scope".
+    """
+    if await JobService(session).get(job_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such job")
+
+    cursor = after
+    if last_event_id is not None and last_event_id.isdigit():
+        # The header wins: it is the browser telling us where it actually got
+        # to, which is better information than a query string built by hand.
+        cursor = int(last_event_id)
+
+    return StreamingResponse(
+        _event_stream(sessionmaker, job_id, cursor),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            # nginx and friends buffer text/event-stream by default, which
+            # turns a live feed into one delivery at the end.
+            "X-Accel-Buffering": "no",
+        },
     )
