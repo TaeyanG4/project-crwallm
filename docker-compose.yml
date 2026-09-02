@@ -16,7 +16,10 @@ services:
       -c max_connections=100
       -c shared_buffers=256MB
     ports:
-      - "127.0.0.1:5432:5432"
+      # 5433 by default: a local PostgreSQL install - or a WSL port relay -
+      # already owns 5432 on plenty of machines, and losing the race there
+      # produces a bind error rather than anything explanatory.
+      - "127.0.0.1:${CRWALLM_DB_PORT:-5433}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -31,6 +34,8 @@ services:
       db:
         condition: service_healthy
     environment:
+      # Inside the compose network the container port is still 5432; only
+      # the published host port moves.
       CRWALLM_DATABASE_URL: postgresql+asyncpg://crwallm:crwallm@db:5432/crwallm
       CRWALLM_API_HOST: 0.0.0.0   # container-internal; published to 127.0.0.1 only
       CRWALLM_API_TOKEN: ${CRWALLM_API_TOKEN:?set CRWALLM_API_TOKEN in .env}

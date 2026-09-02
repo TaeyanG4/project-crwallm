@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     )
 
     # -- database --------------------------------------------------------
-    database_url: str = "postgresql+asyncpg://crwallm:crwallm@localhost:5432/crwallm"
+    database_url: str = "postgresql+asyncpg://crwallm:crwallm@localhost:5433/crwallm"
     db_echo: bool = False
 
     # -- storage ---------------------------------------------------------

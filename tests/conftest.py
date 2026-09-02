@@ -16,7 +16,7 @@ def settings() -> Settings:
     return Settings(
         env="dev",
         api_token=TEST_TOKEN,
-        database_url="postgresql+asyncpg://crwallm:crwallm@localhost:5432/crwallm_test",
+        database_url="postgresql+asyncpg://crwallm:crwallm@localhost:5433/crwallm_test",
     )
 
 

@@ -30,6 +30,16 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 docker compose up -d db
 ```
 
+PostgreSQL은 호스트의 **5433** 포트로 노출됩니다. 5432는 로컬 설치나 WSL 포트
+릴레이가 이미 쓰고 있는 경우가 흔하고, 충돌하면 설명이 없는 bind 에러만 납니다.
+다른 포트를 쓰려면 `CRWALLM_DB_PORT`를 설정하세요.
+
+통합 테스트용 DB를 한 번 만들어 둡니다.
+
+```bash
+docker exec crwallm-db-1 psql -U crwallm -d crwallm -c "CREATE DATABASE crwallm_test;"
+```
+
 ```bash
 alembic upgrade head
 ```
@@ -96,8 +106,14 @@ pytest -m "not integration and not e2e"
 ```
 
 `tests/integration/test_job_pipeline.py`는 PostgreSQL이 응답하지 않으면 스스로
-스킵합니다. Docker 없이도 나머지가 돌게 하기 위한 것이며, 그만큼 **CI에서만
-검증되는 테스트**라는 뜻이기도 합니다. 로컬에서 돌리려면 DB를 띄우세요.
+스킵합니다. Docker 없이도 나머지가 돌게 하기 위한 것이니, **스킵 개수를 확인하세요**
+— 조용히 안 도는 것과 통과하는 것은 다릅니다.
+
+마이그레이션이 모델과 어긋나지 않았는지:
+
+```bash
+alembic check
+```
 
 ## 마이그레이션
 

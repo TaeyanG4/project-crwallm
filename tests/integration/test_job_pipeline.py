@@ -17,6 +17,7 @@ import os
 from collections.abc import AsyncIterator, Iterator
 
 import pytest
+import pytest_asyncio
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -34,13 +35,20 @@ from crwallm.services.job import JobService
 from crwallm.storage.blob import NullBlobStore
 from tests.fixtures.malicious_server.server import MaliciousServer, RunningServer
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="module")]
+"""Every test in this module shares one event loop.
+
+The engine is module-scoped so the schema is built once. A connection is
+bound to the loop that opened it, so without pinning the loop scope to
+match, each test gets a fresh loop and asyncpg raises "attached to a
+different loop" on the first query.
+"""
 
 LOOPBACK = [ipaddress.ip_network("127.0.0.0/8")]
 
 TEST_DATABASE_URL = os.environ.get(
     "CRWALLM_TEST_DATABASE_URL",
-    "postgresql+asyncpg://crwallm:crwallm@localhost:5432/crwallm_test",
+    "postgresql+asyncpg://crwallm:crwallm@localhost:5433/crwallm_test",
 )
 
 
@@ -56,7 +64,7 @@ async def _database_reachable() -> bool:
         await engine.dispose()
 
 
-@pytest.fixture(scope="module")
+@pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def engine():  # type: ignore[no-untyped-def]
     if not await _database_reachable():
         pytest.skip(f"no database at {TEST_DATABASE_URL.split('@')[-1]}")
@@ -73,7 +81,26 @@ async def engine():  # type: ignore[no-untyped-def]
         await eng.dispose()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture(loop_scope="module", autouse=True)
+async def clean_database(engine) -> AsyncIterator[None]:  # type: ignore[no-untyped-def]
+    """Empty every table before each test.
+
+    Several of these tests assert on "what is in the queue" or "how many rows
+    exist", and a leftover row from a neighbour turns those into assertions
+    about test ordering. TRUNCATE CASCADE rather than per-table deletes so the
+    foreign keys do not dictate the order.
+    """
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "TRUNCATE crawl_specs, crawl_jobs, crawl_results, "
+                "extracted_records, crawl_events RESTART IDENTITY CASCADE"
+            )
+        )
+    yield
+
+
+@pytest_asyncio.fixture(loop_scope="module")
 async def session(engine) -> AsyncIterator[AsyncSession]:  # type: ignore[no-untyped-def]
     maker = async_sessionmaker(engine, expire_on_commit=False)
     async with maker() as s:
