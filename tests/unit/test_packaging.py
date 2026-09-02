@@ -24,6 +24,7 @@ PYPROJECT = Path(__file__).resolve().parents[2] / "pyproject.toml"
 IMPORT_TO_DISTRIBUTION = {
     "yaml": "pyyaml",
     "pydantic_settings": "pydantic-settings",
+    "webview": "pywebview",
 }
 """Where the import name and the package name differ."""
 

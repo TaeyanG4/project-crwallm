@@ -33,6 +33,10 @@ dependencies = [
     # browser binary is a separate download: `python -m playwright install
     # chromium`, which `crwallm setup` runs.
     "playwright>=1.49",
+    # The desktop window. Uses the OS WebView - WebView2 on Windows, which
+    # ships with Edge - so it adds no runtime for the user to install, unlike
+    # bundling Chromium.
+    "pywebview>=5.0",
     "pyyaml>=6.0",
     "rbloom>=1.5",
     "uvloop>=0.21; sys_platform != 'win32'",
@@ -45,6 +49,8 @@ dev = [
     "ruff>=0.8",
     "mypy>=1.13",
     "types-PyYAML>=6.0",
+    # Builds the single-file desktop binary. A build tool, not a runtime one.
+    "pyinstaller>=6.11",
 ]
 
 [project.scripts]

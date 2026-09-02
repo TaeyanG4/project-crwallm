@@ -182,18 +182,16 @@ class TestDeclaredDataRecipes:
     def test_the_source_survives_a_save_and_load(self, tmp_path: Path) -> None:
         self.jsonld_recipe(tmp_path)
         plan = resolve_plan(spec(recipe="products"), recipes_dir=tmp_path)
-        assert plan.structured is not None
-        assert plan.structured.kind == "jsonld"
-        assert plan.structured.container == "Product"
+        assert plan.extraction.source == "jsonld"
+        assert plan.extraction.container == "Product"
 
     def test_field_paths_come_through(self, tmp_path: Path) -> None:
         self.jsonld_recipe(tmp_path)
         plan = resolve_plan(spec(recipe="products"), recipes_dir=tmp_path)
-        assert plan.structured is not None
-        assert plan.structured.fields == (
-            FieldPath("title", "name"),
-            FieldPath("price", "offers.price"),
-        )
+        assert [(f.name, f.path) for f in plan.extraction.fields] == [
+            ("title", "name"),
+            ("price", "offers.price"),
+        ]
 
     def test_the_built_extractor_reads_declared_data(self, tmp_path: Path) -> None:
         from crwallm.crawler.extraction.structured import StructuredExtractor
@@ -208,7 +206,7 @@ class TestDeclaredDataRecipes:
         from crwallm.services.crawl import build_extractor
 
         plan = resolve_plan(spec(recipe="laptops"), recipes_dir=store)
-        assert plan.structured is None
+        assert plan.extraction.source == "css"
         assert isinstance(build_extractor(plan), CssExtractor)
 
     def test_links_are_still_followed_from_the_dom(self, tmp_path: Path) -> None:
@@ -266,7 +264,7 @@ class TestKnownSchemaRecipes:
             ),
         )
         plan = resolve_plan(spec(recipe="doc"), recipes_dir=tmp_path)
-        assert plan.document is not None
+        assert plan.extraction.source == "feed"
 
     def test_a_table_recipe_carries_its_container(self, tmp_path: Path) -> None:
         from crwallm.services.crawl import build_extractor
@@ -399,25 +397,18 @@ class TestBrowserIsOnlyBuiltWhenItCanHelp:
     pages that had asked for no data at all, against 0.5s once fixed.
     """
 
-    def plan_for(self, **overrides: object):  # type: ignore[no-untyped-def]
-        from crwallm.crawler.extraction.css import CssSpec, FieldSpec
+    def test_a_plan_with_no_extraction_asks_for_nothing(self) -> None:
         from crwallm.services.crawl import CrawlPlan
 
-        base: dict[str, object] = {"spec": spec(), "extraction": CssSpec()}
-        base.update(overrides)
-        return CrawlPlan(**base), FieldSpec  # type: ignore[arg-type]
-
-    def test_a_plan_with_no_extraction_asks_for_nothing(self) -> None:
-        plan, _ = self.plan_for()
-        assert not plan.extracts_records
+        assert not CrawlPlan(spec=spec()).extracts_records
 
     def test_css_fields_count(self) -> None:
-        from crwallm.crawler.extraction.css import CssSpec, FieldSpec
+        from crwallm.crawler.extraction.plan import Extraction, Field
         from crwallm.services.crawl import CrawlPlan
 
         plan = CrawlPlan(
             spec=spec(),
-            extraction=CssSpec(fields=(FieldSpec(name="t", selector="h3"),)),
+            extraction=Extraction(fields=(Field(name="t", path="h3"),)),
         )
         assert plan.extracts_records
 

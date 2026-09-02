@@ -276,7 +276,7 @@ def crawl(
     For a crawl you want to walk away from, use ``jobs submit`` - that queues
     it for the worker instead of tying it to this terminal.
     """
-    from crwallm.crawler.extraction.css import CssSpec
+    from crwallm.crawler.extraction.plan import Extraction, Field
     from crwallm.services.crawl import CrawlPlan, parse_field
 
     if recipe and (field or container):
@@ -326,7 +326,22 @@ def crawl(
                 _err(str(exc))
                 raise typer.Exit(1) from None
     else:
-        plan = CrawlPlan(spec=spec, extraction=CssSpec(container=container, fields=fields))
+        plan = CrawlPlan(
+            spec=spec,
+            extraction=Extraction(
+                container=container,
+                fields=tuple(
+                    Field(
+                        name=f.name,
+                        path=f.selector,
+                        kind=f.type,
+                        attr=f.attr,
+                        transform=f.transform,
+                    )
+                    for f in fields
+                ),
+            ),
+        )
 
     records = asyncio.run(_run_crawl(plan, archive=archive, quiet=quiet, allow_local=allow_local))
     _emit_records(records, output)
@@ -475,7 +490,7 @@ def spider(
     seen - or that answer 200 while meaning 404 - stop costing budget.
     docs/05_SPIDER_ARCHITECTURE.md
     """
-    from crwallm.crawler.extraction.css import CssSpec
+    from crwallm.crawler.extraction.plan import Extraction
     from crwallm.schemas.spec import CrawlLimits, CrawlSpec, UrlFilters
     from crwallm.schemas.types import CrawlMode
     from crwallm.services.crawl import CrawlPlan
@@ -508,11 +523,11 @@ def spider(
         )
 
     if loaded is not None:
-        from crwallm.services.recipe import to_css_spec
+        from crwallm.services.recipe import to_extraction
 
-        extraction = to_css_spec(loaded, follow_links=True)
+        extraction = to_extraction(loaded, follow_links=True)
     else:
-        extraction = CssSpec()
+        extraction = Extraction()
 
     plan = CrawlPlan(spec=spec, extraction=extraction)
     records = asyncio.run(

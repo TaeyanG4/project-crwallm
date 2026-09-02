@@ -29,9 +29,8 @@ from typing import Any
 import yaml
 
 from crwallm.crawler.contracts import FetchResponse
-from crwallm.crawler.extraction.css import CssExtractor, CssSpec, FieldSpec
-from crwallm.crawler.extraction.documents import DocumentExtractor
-from crwallm.crawler.extraction.structured import FieldPath, StructuredSpec
+from crwallm.crawler.extraction.css import CssSpec, FieldSpec
+from crwallm.crawler.extraction.plan import Extraction, Field, build
 from crwallm.schemas.filters import apply_filters
 from crwallm.schemas.recipe import Recipe, RecipeQuality, RecipeStatus
 from crwallm.services.semantic import RecordSieve, SemanticScorer
@@ -135,7 +134,12 @@ class RecipeStore:
 
 
 def to_css_spec(recipe: Recipe, *, follow_links: bool = False) -> CssSpec:
-    """Recipe to the extractor's shape."""
+    """A recipe as a CSS spec, for callers that only ever deal in one.
+
+    Prefer ``to_extraction`` plus ``build``: this one silently ignores
+    ``source``, which is how a microdata recipe came to be scored with CSS
+    selectors.
+    """
     return CssSpec(
         container=recipe.container,
         fields=tuple(
@@ -152,7 +156,33 @@ def to_css_spec(recipe: Recipe, *, follow_links: bool = False) -> CssSpec:
     )
 
 
-DOCUMENT_SOURCES = frozenset({"feed", "table", "article"})
+def to_extraction(recipe: Recipe, *, follow_links: bool = False) -> Extraction:
+    """A recipe, as the engine needs it. The only conversion.
+
+    There were four of these - one per source family - and every field added
+    to ``Recipe`` had to be threaded through all of them. Three times one was
+    missed, and the symptom was always the same: a crawl that ran perfectly
+    and produced nothing.
+
+    ``test_extraction_plan`` fails if a new recipe field does not appear here.
+    """
+    return Extraction(
+        source=recipe.source,
+        container=recipe.container,
+        fields=tuple(
+            Field(
+                name=rule.name,
+                path=rule.selector,
+                kind=rule.type,
+                attr=rule.attr,
+                transform=rule.transform,
+                required=rule.required,
+            )
+            for rule in recipe.fields
+        ),
+        filters=recipe.filters,
+        follow_links=follow_links,
+    )
 
 
 def to_sieve(recipe: Recipe, *, scorer: SemanticScorer | None = None) -> RecordSieve:
@@ -166,38 +196,6 @@ def to_sieve(recipe: Recipe, *, scorer: SemanticScorer | None = None) -> RecordS
         filters=recipe.filters,
         required=tuple(f.name for f in recipe.fields if f.required),
         scorer=scorer,
-    )
-
-
-def to_structured_spec(recipe: Recipe) -> StructuredSpec | None:
-    """The declared-data half of a recipe, or None for any other source."""
-    if recipe.source not in {"jsonld", "microdata", "embedded"}:
-        return None
-    return StructuredSpec(
-        kind=recipe.source,
-        container=recipe.container,
-        fields=tuple(
-            FieldPath(name=f.name, path=f.selector, transform=f.transform) for f in recipe.fields
-        ),
-    )
-
-
-def to_document_spec(recipe: Recipe) -> DocumentExtractor | None:
-    """The known-schema half, or None.
-
-    Returns the extractor rather than a spec because there is no spec to
-    speak of: the shape carries its own schema, and what the recipe adds is
-    at most a rename.
-    """
-    if recipe.source not in DOCUMENT_SOURCES:
-        return None
-    return DocumentExtractor(
-        kind=recipe.source,
-        container=recipe.container,
-        fields=tuple(
-            FieldPath(name=f.name, path=f.selector or f.name, transform=f.transform)
-            for f in recipe.fields
-        ),
     )
 
 
@@ -283,8 +281,14 @@ def measure(recipe: Recipe, response: FetchResponse) -> RecipeTestResult:
 
     No network: the response can come from the archive, which is what makes
     the edit loop fast.
+
+    Through the same builder a crawl uses. It used to construct a
+    ``CssExtractor`` unconditionally, so a ``source: microdata`` recipe was
+    scored by treating ``VideoObject`` as a CSS selector - zero records, score
+    0.0, and ``activate`` refusing to promote it. No recipe that read declared
+    data could ever be activated, while the same recipe crawled correctly.
     """
-    extractor = CssExtractor(to_css_spec(recipe))
+    extractor = build(to_extraction(recipe))
     result = extractor.extract(response)
     records = list(result.records)
 

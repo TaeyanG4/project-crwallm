@@ -14,9 +14,8 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from crwallm.crawler.contracts import Extractor, Fetcher
-from crwallm.crawler.extraction.css import CssExtractor, CssSpec, FieldSpec
-from crwallm.crawler.extraction.documents import DocumentExtractor
-from crwallm.crawler.extraction.structured import StructuredExtractor, StructuredSpec
+from crwallm.crawler.extraction.css import FieldSpec
+from crwallm.crawler.extraction.plan import Extraction, build
 from crwallm.crawler.fetching.browser import BrowserFetcher, ScrollPolicy
 from crwallm.crawler.fetching.http import SafeHttpFetcher
 from crwallm.crawler.frontier.memory import MemoryFrontier
@@ -29,10 +28,8 @@ from crwallm.schemas.types import FetchMode
 from crwallm.services.recipe import (
     RecipeFileError,
     RecipeStore,
-    to_css_spec,
-    to_document_spec,
+    to_extraction,
     to_sieve,
-    to_structured_spec,
 )
 from crwallm.services.semantic import RecordSieve
 from crwallm.storage.blob import BlobStore, NullBlobStore
@@ -60,12 +57,14 @@ class CrawlPlan:
     """
 
     spec: CrawlSpec
-    extraction: CssSpec = field(default_factory=CssSpec)
 
-    document: DocumentExtractor | None = None
-    """Set when the recipe reads a shape that carries its own schema - a
-    feed, a table, an article. Ready-built rather than a spec, because there
-    is nothing to configure beyond an optional rename."""
+    extraction: Extraction = field(default_factory=Extraction)
+    """What to pull off each page.
+
+    One shape for every source. It used to be three fields - a CSS spec, an
+    optional structured spec, an optional document extractor - filled by
+    three converters, and a recipe field that reached only some of them was
+    this project's most repeated bug."""
 
     sieve: RecordSieve | None = None
     """The recipe's ``required`` fields and ``filters``, if it has any."""
@@ -78,20 +77,8 @@ class CrawlPlan:
         rendering", and that reading is only true when extraction was
         configured at all. A crawl with no recipe produces zero records on
         every page by design, and without this it would render every one of
-        them - measured at 5.8s for three pages that wanted no data.
-        """
-        return (
-            bool(self.extraction.fields) or self.structured is not None or self.document is not None
-        )
-
-    structured: StructuredSpec | None = None
-    """Set when the recipe reads declared data instead of the DOM.
-
-    Alongside ``extraction`` rather than replacing it: link discovery is
-    always DOM-based, whatever the records were read from. A JSON-LD block
-    does not list the site's navigation, and a crawl that stopped following
-    links because its recipe changed source would silently become a one-page
-    crawl."""
+        them - measured at 5.8s for three pages that wanted no data."""
+        return self.extraction.extracts_records
 
 
 class RecipeNotApplicableError(ValueError):
@@ -159,9 +146,7 @@ def resolve_plan(spec: CrawlSpec, *, recipes_dir: Path | None = None) -> CrawlPl
 
     return CrawlPlan(
         spec=spec,
-        extraction=to_css_spec(recipe, follow_links=spec.follow_links),
-        structured=to_structured_spec(recipe),
-        document=to_document_spec(recipe),
+        extraction=to_extraction(recipe, follow_links=spec.follow_links),
         sieve=to_sieve(recipe),
     )
 
@@ -173,17 +158,7 @@ def build_extractor(plan: CrawlPlan) -> Extractor:
     records were read from, the crawl still has to walk the site, and a recipe
     that changed source must not quietly become a one-page crawl.
     """
-    css = CssSpec(
-        container=plan.extraction.container,
-        fields=plan.extraction.fields,
-        link_selector=plan.extraction.link_selector,
-        follow_links=plan.spec.follow_links,
-    )
-    if plan.document is not None:
-        return replace(plan.document, css=css)
-    if plan.structured is not None:
-        return StructuredExtractor(spec=plan.structured, css=css)
-    return CssExtractor(css)
+    return build(replace(plan.extraction, follow_links=plan.spec.follow_links))
 
 
 def parse_field(raw: str) -> FieldSpec:
