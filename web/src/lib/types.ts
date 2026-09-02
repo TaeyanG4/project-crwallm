@@ -100,6 +100,7 @@ export interface CrawlRequest {
   seed_urls: string[];
   allowed_domains: string[];
   mode: "collect" | "spider";
+  fetch_mode?: "http" | "browser" | "auto";
   follow_links: boolean;
   recipe?: string | null;
   limits: {

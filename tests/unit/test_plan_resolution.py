@@ -384,3 +384,64 @@ class TestFiltersReachTheCrawl:
         )
         assert dropped == 2
         assert reasons == {"required": 1, "author eq": 1}
+
+
+class TestBrowserIsOnlyBuiltWhenItCanHelp:
+    """`auto` reads "zero records" as "this page needs rendering".
+
+    That reading is only true when extraction was configured. A crawl with no
+    recipe produces zero records on every page by design, and escalating on
+    that rendered every page of a spider run - measured at 5.8s for three
+    pages that had asked for no data at all, against 0.5s once fixed.
+    """
+
+    def plan_for(self, **overrides: object):  # type: ignore[no-untyped-def]
+        from crwallm.crawler.extraction.css import CssSpec, FieldSpec
+        from crwallm.services.crawl import CrawlPlan
+
+        base: dict[str, object] = {"spec": spec(), "extraction": CssSpec()}
+        base.update(overrides)
+        return CrawlPlan(**base), FieldSpec  # type: ignore[arg-type]
+
+    def test_a_plan_with_no_extraction_asks_for_nothing(self) -> None:
+        plan, _ = self.plan_for()
+        assert not plan.extracts_records
+
+    def test_css_fields_count(self) -> None:
+        from crwallm.crawler.extraction.css import CssSpec, FieldSpec
+        from crwallm.services.crawl import CrawlPlan
+
+        plan = CrawlPlan(
+            spec=spec(),
+            extraction=CssSpec(fields=(FieldSpec(name="t", selector="h3"),)),
+        )
+        assert plan.extracts_records
+
+    def test_a_declared_data_recipe_counts(self, tmp_path: Path) -> None:
+        save_recipe_file(
+            Recipe(
+                name="p",
+                source="jsonld",
+                source_url="https://shop.test/x",
+                allowed_domains=("shop.test",),
+                container="Product",
+                fields=(FieldRule(name="t", selector="name"),),
+            ),
+            tmp_path,
+        )
+        plan = resolve_plan(spec(recipe="p"), recipes_dir=tmp_path)
+        assert plan.extracts_records
+
+    def test_a_known_schema_recipe_counts_without_fields(self, tmp_path: Path) -> None:
+        """A feed recipe names no fields and still extracts."""
+        save_recipe_file(
+            Recipe(
+                name="f",
+                source="feed",
+                source_url="https://shop.test/rss",
+                allowed_domains=("shop.test",),
+            ),
+            tmp_path,
+        )
+        plan = resolve_plan(spec(recipe="f"), recipes_dir=tmp_path)
+        assert plan.extracts_records

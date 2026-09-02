@@ -27,6 +27,7 @@ from crwallm.policy.gate import Scope, UrlGate
 from crwallm.policy.local import build_guard
 from crwallm.policy.ssrf import SsrfGuard
 from crwallm.schemas.events import CrawlEvent
+from crwallm.schemas.types import FetchMode
 from crwallm.services.crawl import CrawlPlan, build_extractor
 from crwallm.storage.blob import BlobStore, NullBlobStore
 
@@ -69,10 +70,21 @@ async def open_spider(
     open leaks sockets, closing it early truncates the crawl.
     """
     from crwallm.crawler.fetching.http import SafeHttpFetcher
+    from crwallm.services.crawl import browser_for
 
     spec = plan.spec
     resolved_guard = guard if guard is not None else build_guard(allow_local=allow_local)
+
+    # Sitemaps are fetched over HTTP whatever the page mode is: an XML
+    # document has nothing to render, and opening a browser for one would be
+    # the browser's cost with none of its benefit.
+    browser = (
+        browser_for(spec, resolved_guard)
+        if plan.extracts_records or spec.fetch_mode is FetchMode.BROWSER
+        else None
+    )
     fetcher = SafeHttpFetcher(resolved_guard)
+    page_fetcher = browser if spec.fetch_mode is FetchMode.BROWSER and browser else fetcher
 
     frontier = HostFrontier(
         per_host_concurrency=spec.limits.per_host_concurrency,
@@ -80,7 +92,8 @@ async def open_spider(
     )
 
     deps = CrawlDeps(
-        fetcher=fetcher,
+        fetcher=page_fetcher,
+        browser=browser if spec.fetch_mode is FetchMode.AUTO else None,
         frontier=frontier,
         gate=UrlGate.build(spec, resolved_guard, scope=scope),
         extractor=build_extractor(plan),
@@ -98,6 +111,8 @@ async def open_spider(
         yield run_crawl(spec, deps)
     finally:
         await fetcher.aclose()
+        if browser is not None and browser is not page_fetcher:
+            await browser.aclose()
 
 
 async def _seed_from_sitemaps(deps: CrawlDeps, plan: CrawlPlan, report: SpiderSetup) -> None:

@@ -409,6 +409,13 @@ def spider(
     max_depth: Annotated[int, typer.Option("--max-depth")] = 4,
     concurrency: Annotated[int, typer.Option("--concurrency", "-c")] = 16,
     per_host: Annotated[int, typer.Option("--per-host", help="Concurrent requests per host")] = 4,
+    fetch_mode: Annotated[
+        str,
+        typer.Option(
+            "--mode",
+            help="http | browser | auto (HTTP first, render only when it finds nothing)",
+        ),
+    ] = "http",
     interval_ms: Annotated[int, typer.Option("--interval-ms", help="Minimum gap per host")] = 0,
     include: Annotated[list[str] | None, typer.Option("--include")] = None,
     exclude: Annotated[list[str] | None, typer.Option("--exclude")] = None,
@@ -444,6 +451,7 @@ def spider(
             concurrency=concurrency,
             include=include,
             exclude=exclude,
+            fetch_mode=fetch_mode,
         )
         spec = CrawlSpec(
             **base.model_dump(exclude={"limits", "mode", "url_filters"}),

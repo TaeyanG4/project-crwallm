@@ -38,6 +38,7 @@ export function NewCrawlForm({ onSubmitted }: { onSubmitted?: () => void }) {
   const [typedDomains, setTypedDomains] = useState<string | null>(null);
   const [recipe, setRecipe] = useState("");
   const [mode, setMode] = useState<"collect" | "spider">("collect");
+  const [fetchMode, setFetchMode] = useState<"http" | "auto" | "browser">("http");
   const [maxPages, setMaxPages] = useState(50);
   const [maxDepth, setMaxDepth] = useState(2);
   const [recipes, setRecipes] = useState<RecipeSummary[]>([]);
@@ -64,6 +65,7 @@ export function NewCrawlForm({ onSubmitted }: { onSubmitted?: () => void }) {
           .map((s) => s.trim())
           .filter(Boolean),
         mode,
+        fetch_mode: fetchMode,
         // Spider mode requires it, and a collect run of one page does not.
         follow_links: mode === "spider" || maxDepth > 0,
         recipe: recipe || null,
@@ -104,7 +106,20 @@ export function NewCrawlForm({ onSubmitted }: { onSubmitted?: () => void }) {
         </label>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-5">
+        <label className="space-y-1">
+          <span className="text-xs font-medium text-muted-foreground">가져오기</span>
+          <select
+            value={fetchMode}
+            onChange={(e) => setFetchMode(e.target.value as "http" | "auto" | "browser")}
+            className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm"
+          >
+            <option value="http">http — 빠름</option>
+            <option value="auto">auto — 비면 렌더</option>
+            <option value="browser">browser — 항상 렌더</option>
+          </select>
+        </label>
+
         <label className="space-y-1">
           <span className="text-xs font-medium text-muted-foreground">모드</span>
           <select
@@ -157,6 +172,13 @@ export function NewCrawlForm({ onSubmitted }: { onSubmitted?: () => void }) {
           />
         </label>
       </div>
+
+      {fetchMode !== "http" && (
+        <p className="text-xs text-muted-foreground">
+          브라우저는 HTTP보다 20~50배 비쌉니다. <strong>auto</strong>는 HTTP로 먼저 시도하고
+          레코드가 0건일 때만 렌더하므로, 서버 렌더 사이트에서는 값을 치르지 않습니다.
+        </p>
+      )}
 
       {!recipe && (
         <p className="text-xs text-muted-foreground">

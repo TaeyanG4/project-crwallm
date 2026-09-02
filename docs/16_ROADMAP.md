@@ -204,13 +204,34 @@ selectolax `.css()`가 자기 자신을 포함 · HTML 파서의 `<link>` void �
 
 ---
 
-## Phase 7 — Browser
+## Phase 7 — Browser  ✅
 
-- Playwright direct, 인스턴스/context 재사용, 페이지 풀
-- route interception 리소스 차단
-- **결과 기반 auto 폴백** (레코드 0건 → 브라우저)
-- **무한 스크롤**
-- 브라우저 네트워크 관찰로 API 발견 보강
+- ✅ Playwright direct, 브라우저 1개 + context 재사용 + 페이지 풀
+- ✅ route interception 리소스 차단 (image/media/font/stylesheet)
+- ✅ **결과 기반 auto 폴백** (레코드 0건 → 브라우저)
+- ✅ **무한 스크롤** (`max_rounds`, `stop_when_no_growth`)
+- ✅ 브라우저 네트워크 관찰 → `inspect --render`가 API를 보고
+
+### Phase 7에서 확정된 것
+
+| 결정 | 근거 |
+|---|---|
+| `settle_ms` 기본값 **0이 아님** | 실측: 0에서 XHR 콘텐츠가 5번 중 **2번**만 렌더. 500ms에서 5/5. 절반만 되는 브라우저는 없는 것보다 나쁘다 — auto가 빈 렌더를 "정말 비었다"로 읽는다 |
+| route 가드가 **렌더 전체**를 감쌈 | goto 직후 unroute하면 로드 이후 요청이 SSRF 검사를 안 받는다. 스크롤 구간 전체가 무방비였다 |
+| `domcontentloaded`, `networkidle` 금지 | 폴링 위젯·웹소켓이 있는 페이지는 영원히 idle이 아니다 |
+| `--no-sandbox` **안 씀** | 모든 포럼의 첫 제안이고, 적대적 페이지의 렌더러 버그를 이 사용자 권한 코드 실행으로 바꾼다 |
+| auto 판정은 **결과 기반** | "JS shell인가?"는 양방향으로 틀린다. "추출이 레코드를 만들었나?"가 실제 질문 |
+| 승격 판단은 **아카이브 이전** | 이후면 페이지를 두 번 세고 두 번 저장한다 |
+| 스크롤은 **최후 수단** | 무한 피드도 결국 XHR을 부른다. `inspect --render`로 그 주소를 찾으면 브라우저가 다시 필요 없다 |
+
+**실측** (`quotes.toscrape.com/js/`, 스크립트로만 렌더):
+
+```text
+http     0 records  1.01s
+auto    10 records  2.90s   <- 승격
+browser 10 records  3.00s
+auto(서버 렌더 페이지)  0.79s   <- 브라우저를 열지 않음
+```
 
 ---
 

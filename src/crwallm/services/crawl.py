@@ -40,6 +40,7 @@ from crwallm.storage.blob import BlobStore, NullBlobStore
 __all__ = [
     "CrawlPlan",
     "RecipeNotApplicableError",
+    "browser_for",
     "build_extractor",
     "open_crawl",
     "resolve_plan",
@@ -68,6 +69,20 @@ class CrawlPlan:
 
     sieve: RecordSieve | None = None
     """The recipe's ``required`` fields and ``filters``, if it has any."""
+
+    @property
+    def extracts_records(self) -> bool:
+        """Whether anything was asked for.
+
+        The auto fallback reads "zero records" as "this page needs
+        rendering", and that reading is only true when extraction was
+        configured at all. A crawl with no recipe produces zero records on
+        every page by design, and without this it would render every one of
+        them - measured at 5.8s for three pages that wanted no data.
+        """
+        return (
+            bool(self.extraction.fields) or self.structured is not None or self.document is not None
+        )
 
     structured: StructuredSpec | None = None
     """Set when the recipe reads declared data instead of the DOM.
@@ -198,7 +213,7 @@ def parse_field(raw: str) -> FieldSpec:
     )
 
 
-def _browser_for(spec: CrawlSpec, guard: SsrfGuard) -> BrowserFetcher | None:
+def browser_for(spec: CrawlSpec, guard: SsrfGuard) -> BrowserFetcher | None:
     """A browser, only for the modes that can use one.
 
     Constructed but not started: ``BrowserFetcher`` launches Chromium on its
@@ -240,7 +255,13 @@ async def open_crawl(
     rather than reaching through the wall.
     """
     guard = guard if guard is not None else SsrfGuard(CachingResolver(SystemResolver()))
-    browser = _browser_for(plan.spec, guard)
+    # No extraction configured means "zero records" says nothing about the
+    # page, so auto has no signal to act on and would render everything.
+    browser = (
+        browser_for(plan.spec, guard)
+        if plan.extracts_records or plan.spec.fetch_mode is FetchMode.BROWSER
+        else None
+    )
 
     # A browser-only crawl uses it as *the* fetcher; auto keeps HTTP first and
     # reaches for the browser when extraction came back empty.
