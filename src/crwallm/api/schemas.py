@@ -28,6 +28,7 @@ __all__ = [
     "RecipeDetail",
     "RecipeSummary",
     "RecordPage",
+    "RecordSource",
 ]
 
 
@@ -89,6 +90,15 @@ class JobDetail(JobSummary):
     well-aimed crawl; a lot of ``pattern_budget`` means a trap was found."""
 
 
+class RecordSource(BaseModel):
+    """Which page and which extractor produced one record."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    page_url: str
+    extractor: str
+
+
 class RecordPage(BaseModel):
     """A page of extracted rows.
 
@@ -102,6 +112,19 @@ class RecordPage(BaseModel):
     offset: int
     limit: int
     records: list[dict[str, Any]]
+
+    provenance: list[RecordSource] = Field(default_factory=list)
+    """Where each row came from, positionally aligned with ``records``.
+
+    Alongside rather than merged into the row: a record's fields are named by
+    its recipe, and quietly adding ``page_url`` to them would collide with a
+    site that has a column of that name and change what a downstream consumer
+    sees. Kept out of ``records`` so the data stays exactly what was
+    extracted.
+
+    Worth surfacing now that a row can come from seven different places. "The
+    price is wrong on this row" is answered by knowing whether it was read
+    from a selector, from JSON-LD or from microdata."""
 
 
 class JobEvent(BaseModel):

@@ -37,6 +37,7 @@ from crwallm.api.schemas import (
     PageRow,
     PageRowList,
     RecordPage,
+    RecordSource,
 )
 from crwallm.db.models import CrawlEventRow, CrawlResult, ExtractedRecord, JobStatus
 from crwallm.policy.domains import InvalidDomainError
@@ -125,14 +126,15 @@ async def get_results(
             .limit(limit)
         )
     ).scalars()
-    records = [r.data for r in rows]
+    materialised = list(rows)
 
     return RecordPage(
         job_id=job_id,
-        total_returned=len(records),
+        total_returned=len(materialised),
         offset=offset,
         limit=limit,
-        records=records,
+        records=[r.data for r in materialised],
+        provenance=[RecordSource.model_validate(r) for r in materialised],
     )
 
 

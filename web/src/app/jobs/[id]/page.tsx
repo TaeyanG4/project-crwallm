@@ -50,6 +50,7 @@ export default function JobPage({ params }: PageProps<"/jobs/[id]">) {
   }
 
   const rows = records.data?.records ?? [];
+  const provenance = records.data?.provenance ?? [];
   const pageRows = pages.data?.pages ?? [];
   const emptyHarvest = finished && detail !== null && detail.records_extracted === 0;
 
@@ -112,7 +113,7 @@ export default function JobPage({ params }: PageProps<"/jobs/[id]">) {
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto">
-            {tab === "records" && <RecordTable rows={rows} />}
+            {tab === "records" && <RecordTable rows={rows} provenance={provenance} />}
             {tab === "pages" && <PageTable rows={pageRows} />}
             {tab === "diagnostics" && detail && <Diagnostics job={detail} />}
           </div>

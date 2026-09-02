@@ -168,16 +168,39 @@ crwallm spider https://example.com/ --max-pages 500
 
 ---
 
-## Phase 6 — Extraction Expansion
+## Phase 6 — Extraction Expansion  ✅
 
-- **내부 JSON API 발견** + **API 페이지네이션** (offset/page/cursor/link_header/graphql)
-- 임베디드 JSON (`__NEXT_DATA__` 등)
-- JSON-LD (Product/Article/JobPosting/**VideoObject**)
-- RSS/Atom, `<table>`
-- OpenGraph/microdata/oEmbed — **미디어 메타데이터 추출기**
-- trafilatura 본문 추출 → `Document`
-- 임베딩 최소 인프라 + **semantic 필터**
-- Evidence/provenance
+- ✅ **내부 JSON API 발견** — Next.js `buildId` → 데이터 라우트, `<link rel=alternate>`
+- ✅ **API 페이지네이션** — link_header / next_url / cursor / page / offset
+- ✅ 임베디드 JSON (`__NEXT_DATA__` 등)
+- ✅ JSON-LD (`@graph` 언랩, 중첩 엔티티, CDATA)
+- ✅ **microdata** — JSON-LD가 빠뜨린 duration·channel을 채운다
+- ✅ RSS/Atom, `<table>`
+- ✅ OpenGraph/Twitter — 영상 페이지 판별
+- ✅ 본문 추출 (자체 구현, trafilatura 미도입)
+- ✅ 임베딩 + **semantic 필터** (bge-m3)
+- ✅ provenance — 레코드마다 page_url + extractor
+
+### Phase 6에서 확정된 것
+
+| 결정 | 근거 |
+|---|---|
+| 인라인 JS에서 API URL 긁기 **안 함** | 실제 4개 사이트에서 0건. 요즘 번들에 리터럴 엔드포인트가 없다 |
+| 관례 경로(`/wp-json`, `/products.json`) **투기적 요청 안 함** | 만나는 호스트마다 404 여덟 번은 무례하고 느리다. 목록으로 제공만 |
+| JSON-LD는 **상세 페이지** 포맷 | 목록 6곳 조사에서 1곳, 그것도 `WebPage`뿐. "목록은 레시피로 → 상세에서 JSON-LD" |
+| microdata를 JSON-LD와 **합치지 않음** | 한 페이지가 둘 다 갖고 다를 수 있다. 합치면 무엇이 바뀌었는지 안 보인다 |
+| 피드는 **XML로 파싱** | HTML 파서는 `<link>`를 void로 처리해 모든 항목의 URL을 잃는다 |
+| XML은 **선언 거부 + stdlib** | 외부 엔티티는 stdlib가 이미 안 푼다. 남은 엔티티 폭발은 선언을 막으면 끝 |
+| semantic 필터는 **임베딩**, 챗 모델 아님 | 재실행 안정성. 챗 모델은 행마다 생성 + 매번 다른 답 |
+| 모델 없으면 semantic **건너뜀** | 모델 없다고 전부 버리면 밖에서는 잘 도는 필터로 보인다 |
+| trafilatura **미도입** | 자체 밀도 채점으로 위키백과 7,558단어 추출 확인. 의존성 하나를 아낀다 |
+| oEmbed **미구현** | 5곳 중 1곳(YouTube)뿐이고 거기서는 microdata가 더 많이 준다 |
+
+**Phase 6에서 실행이 잡은 것** — 전부 코드를 읽어서가 아니라 돌려서 나왔다:
+워커가 레시피를 로드하지 않음 · 레시피 필터가 크롤에서 무시됨 ·
+selectolax `.css()`가 자기 자신을 포함 · HTML 파서의 `<link>` void 처리 ·
+`tbody tr, tr`이 행을 두 번 셈 · Tailwind 유틸리티가 셀렉터에 섞임 ·
+선언 없는 의존성 4개 · cp949 콘솔에서 CLI가 죽음
 
 ---
 

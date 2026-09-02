@@ -32,12 +32,20 @@ export interface JobDetail extends JobSummary {
   reject_counts: Record<string, number>;
 }
 
+export interface RecordSource {
+  page_url: string;
+  extractor: string;
+}
+
 export interface RecordPage {
   job_id: string;
   total_returned: number;
   offset: number;
   limit: number;
   records: Record<string, unknown>[];
+  /** Positionally aligned with `records`, not merged into them: a site can
+   *  have a column called `page_url` of its own. */
+  provenance: RecordSource[];
 }
 
 export interface PageRow {

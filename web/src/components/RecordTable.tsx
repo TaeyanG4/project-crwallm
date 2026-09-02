@@ -1,6 +1,7 @@
 "use client";
 
-import { cellText, columnsOf } from "@/lib/format";
+import { cellText, columnsOf, shortUrl } from "@/lib/format";
+import type { RecordSource } from "@/lib/types";
 
 /**
  * Extracted rows, as a table.
@@ -9,8 +10,18 @@ import { cellText, columnsOf } from "@/lib/format";
  * arrive from ad-hoc extraction and from the chat, and a table that only knew
  * about recipe fields would silently drop the rest.
  */
-export function RecordTable({ rows }: { rows: Record<string, unknown>[] }) {
+export function RecordTable({
+  rows,
+  provenance = [],
+}: {
+  rows: Record<string, unknown>[];
+  provenance?: RecordSource[];
+}) {
   const columns = columnsOf(rows);
+  // Which page a row came from, and which of the seven extractors read it.
+  // A source column rather than a merged field: the row's own columns are
+  // named by its recipe and a site can have a `page_url` of its own.
+  const showSource = provenance.length === rows.length && rows.length > 0;
 
   if (rows.length === 0) {
     return (
@@ -34,6 +45,11 @@ export function RecordTable({ rows }: { rows: Record<string, unknown>[] }) {
                 {column}
               </th>
             ))}
+            {showSource && (
+              <th className="whitespace-nowrap px-3 py-2 font-medium text-muted-foreground">
+                출처
+              </th>
+            )}
           </tr>
         </thead>
         <tbody className="divide-y">
@@ -59,6 +75,22 @@ export function RecordTable({ rows }: { rows: Record<string, unknown>[] }) {
                   </td>
                 );
               })}
+              {showSource && (
+                <td className="px-3 py-1.5 align-top">
+                  <a
+                    href={provenance[index].page_url}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    title={provenance[index].page_url}
+                    className="block max-w-48 truncate font-mono text-xs text-muted-foreground hover:underline"
+                  >
+                    {shortUrl(provenance[index].page_url, 28)}
+                  </a>
+                  <span className="font-mono text-[10px] text-muted-foreground">
+                    {provenance[index].extractor}
+                  </span>
+                </td>
+              )}
             </tr>
           ))}
         </tbody>
