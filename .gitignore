@@ -36,3 +36,9 @@ recipes/_scratch/
 # OS
 .DS_Store
 Thumbs.db
+
+# web
+web/node_modules/
+web/.next/
+web/out/
+web/next-env.d.ts
