@@ -3,6 +3,11 @@
 이 문서는 **무엇을 어떻게 하는지**를 다룹니다.
 설계 근거는 [docs/](docs/00_INDEX.md), 개발 환경은 [DEVELOPMENT.md](DEVELOPMENT.md).
 
+> `crwallm` 명령은 가상환경 안에 있습니다. 활성화하지 않았다면 아래 모든
+> 예제 앞에 `uv run`을 붙이세요 — `uv run crwallm inspect ...`.
+> 한 번 활성화해두려면 `source .venv/Scripts/activate` (Windows) 또는
+> `source .venv/bin/activate`.
+
 - [조작 수준 네 가지](#조작-수준-네-가지)
 - [1. 페이지 살펴보기](#1-페이지-살펴보기)
 - [2. 레시피](#2-레시피)
@@ -386,6 +391,25 @@ Parquet은 없습니다. pyarrow 40MB를 로컬에서 아무도 열지 않는 �
 ## 9. 웹 UI와 대화
 
 ```bash
+crwallm up
+```
+
+API·워커·UI가 함께 뜨고 브라우저가 열립니다. Ctrl-C로 전부 내려갑니다.
+
+| 플래그 | |
+|---|---|
+| `--no-ui` | API와 워커만 |
+| `--no-worker` | 잡을 큐에만 넣고 실행하지 않음 |
+| `--no-open` | 브라우저를 열지 않음 |
+| `--port` / `--ui-port` | 포트 변경 |
+
+**워커가 없으면 UI가 잡을 큐에 넣고 아무 일도 일어나지 않습니다** — 화면에는
+`대기` 상태로만 보이고 이유가 나오지 않습니다. `up`이 셋을 함께 띄우는 이유가
+그것입니다.
+
+따로 띄우려면:
+
+```bash
 crwallm serve                      # API      127.0.0.1:8000
 crwallm worker                     # 워커
 npm run dev --prefix web           # UI       localhost:3000
@@ -522,8 +546,22 @@ Tailwind 같은 유틸리티 클래스는 걸러내지만, 걸러낸 뒤에도 �
 
 ### 워커가 잡을 안 집는다
 
+잡이 `대기`에서 움직이지 않으면 워커가 없는 것입니다. `crwallm up`은 셋을
+함께 띄우지만, `serve`만 돌렸다면 워커는 없습니다.
+
 `crwallm worker`가 돌고 있는지, DB가 살아 있는지(`docker compose ps`),
 `crwallm config`의 `database_url`이 맞는지 확인하세요.
+
+### `crwallm: command not found`
+
+가상환경이 활성화되지 않았습니다. `uv run crwallm ...`을 쓰거나
+`source .venv/Scripts/activate`(Windows) / `source .venv/bin/activate`.
+
+### `uv venv`가 실패한다
+
+`uv sync`를 쓰세요. 가상환경을 만들고 의존성까지 맞춥니다. 이미 `.venv`가
+있으면 갱신하고, `uv venv`처럼 지웠다 다시 만들지 않습니다 — Windows에서
+그 삭제가 실패하는 경우가 있습니다.
 
 ---
 

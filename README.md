@@ -31,18 +31,51 @@ GPU가 부족하면 클라우드 API로 바꾸거나, 모델 없이 수동으로
 ## 설치
 
 ```bash
-git clone <repo> && cd project-crwallm
-uv venv --python 3.12 && uv pip install -e ".[dev]"
-crwallm setup
+git clone https://github.com/TaeyanG4/project-crwallm.git
+cd project-crwallm
+uv sync
+uv run crwallm setup
 ```
+
+`uv sync`가 가상환경까지 만듭니다 — `uv venv`를 따로 부르지 마세요.
+이미 `.venv`가 있으면 그것을 맞춰 갱신합니다.
 
 `setup`이 설정 파일·DB·모델 서버·모델·Chromium까지 준비합니다.
 모델을 쓰지 않으려면 `--no-llm`, 브라우저가 필요 없으면 `--no-browser`.
 
-필요한 것: Python 3.12, Docker(Postgres·Ollama용), uv.
-모델과 Chromium은 저장소에 들어 있지 않고 `setup`이 내려받습니다.
+필요한 것: Python 3.12, Docker(Postgres·Ollama용), [uv](https://docs.astral.sh/uv/),
+Node 20+ (웹 UI용). 모델과 Chromium은 저장소에 없고 `setup`이 내려받습니다.
 
-## 30초 만에 해보기
+### `crwallm`을 어떻게 부르나
+
+명령은 가상환경 안에 설치되므로 그냥 `crwallm`을 치면 **찾지 못합니다.**
+둘 중 하나를 쓰세요.
+
+```bash
+uv run crwallm <명령>              # 활성화 없이. 어디서나 동작
+```
+
+```bash
+source .venv/Scripts/activate      # Windows (Git Bash) — 한 번만
+source .venv/bin/activate          # macOS / Linux
+crwallm <명령>
+```
+
+아래 예제는 `crwallm`으로 적었습니다. 활성화하지 않았다면 앞에 `uv run`을
+붙이세요.
+
+## 바로 써보기
+
+```bash
+crwallm up
+```
+
+API·워커·웹 UI가 한 번에 뜨고 브라우저가 열립니다. Ctrl-C로 전부 내려갑니다.
+UI 없이 API만 원하면 `crwallm serve`.
+
+첫 실행에서는 `web/`의 의존성을 설치하느라 1분쯤 걸립니다.
+
+## 터미널에서 30초
 
 ```bash
 crwallm inspect https://quotes.toscrape.com/
@@ -75,13 +108,23 @@ crwallm crawl https://quotes.toscrape.com/ --recipe quotes --follow --max-pages 
 | 사이트 전체 훑기 | `crwallm spider <url> --recipe <name>` |
 | 백그라운드로 돌리기 | `crwallm jobs submit ...` + `crwallm worker` |
 | 데이터 꺼내기 | `crwallm jobs export <id> -f csv -o out.csv` |
-| 웹 UI | `crwallm serve` + `npm run dev --prefix web` |
+| 웹 UI | `crwallm up` |
 
 ## 웹 UI
 
 ```bash
+crwallm up
+```
+
+세 프로세스가 필요합니다 — API, 잡을 실제로 돌리는 워커, UI. `up`이 셋을
+함께 띄웁니다. **워커 없이는 UI가 잡을 큐에 넣고 아무 일도 일어나지
+않는데, 화면에는 그 이유가 나오지 않습니다.**
+
+따로 띄우려면:
+
+```bash
 crwallm serve                      # API (127.0.0.1:8000)
-crwallm worker                     # 잡을 실행할 워커
+crwallm worker                     # 워커
 npm run dev --prefix web           # UI (localhost:3000)
 ```
 

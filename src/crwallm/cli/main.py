@@ -121,6 +121,38 @@ def serve() -> None:
 
 
 @app.command()
+def up(
+    port: Annotated[int, typer.Option("--port", help="API port")] = 8000,
+    ui_port: Annotated[int, typer.Option("--ui-port")] = 3000,
+    ui: Annotated[bool, typer.Option("--ui/--no-ui", help="Also start the web UI")] = True,
+    worker_too: Annotated[
+        bool, typer.Option("--worker/--no-worker", help="Also start a crawl worker")
+    ] = True,
+    open_browser: Annotated[bool, typer.Option("--open/--no-open")] = True,
+) -> None:
+    """Start the API, a worker and the web UI together.
+
+    The tool needs all three: the UI submits jobs to the API and the worker is
+    what runs them, so a UI without a worker looks broken in a way nothing on
+    screen explains. Three terminals in the right order is a setup step
+    disguised as a design.
+
+    Ctrl-C stops everything.
+    """
+    from crwallm.cli.up_cmd import up as run_up
+
+    raise typer.Exit(
+        run_up(
+            port=port,
+            ui_port=ui_port,
+            with_ui=ui,
+            with_worker=worker_too,
+            open_browser=open_browser,
+        )
+    )
+
+
+@app.command()
 def worker() -> None:
     """Run the crawl worker.
 
