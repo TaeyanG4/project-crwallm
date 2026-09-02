@@ -64,6 +64,50 @@ class TestDetection:
         best = detect_containers(shop(grid="col-md-3 col-sm-6"))[0]
         assert best.selector == "li.product-item"
 
+    def test_tailwind_utilities_do_not_end_up_in_the_selector(self) -> None:
+        """Found by running `inspect` against react.dev, which produced
+
+            a.aspect-video.dark:outline-link.hover:opacity-95.items-center
+             .outline-link.overflow-hidden.select-none.transition-opacity.xs:w-36
+
+        - a valid selector that any CSS edit would break, and one that says
+        nothing about what the element is.
+        """
+        html = """<ul>
+          <li class="items-center overflow-hidden card"><a
+             class="aspect-video dark:outline-link hover:opacity-95 select-none
+                    transition-opacity xs:w-36 video-link"
+             href="/v/1">Intro to hooks, part one</a></li>
+          <li class="items-center overflow-hidden card"><a
+             class="aspect-video dark:outline-link hover:opacity-95 select-none
+                    transition-opacity xs:w-36 video-link"
+             href="/v/2">State and effects explained</a></li>
+          <li class="items-center overflow-hidden card"><a
+             class="aspect-video dark:outline-link hover:opacity-95 select-none
+                    transition-opacity xs:w-36 video-link"
+             href="/v/3">Suspense in practice today</a></li>
+        </ul>"""
+        best = detect_containers(LexborHTMLParser(html))[0]
+
+        assert best.selector == "li.card"
+        for column in best.columns:
+            assert ":" not in column.selector, column.selector
+            assert "aspect-video" not in column.selector, column.selector
+
+    def test_a_selector_never_carries_more_than_a_few_classes(self) -> None:
+        """Eight classes is brittle even when every one is meaningful - each
+        one is another way for the page to stop matching."""
+        rows = "".join(
+            f'''<li class="alpha beta gamma delta epsilon zeta">
+                 <h3 class="name">Mechanical keyboard model {i}</h3>
+                 <span class="price">{i}9,000 won including delivery</span>
+               </li>'''
+            for i in range(1, 7)
+        )
+        html = f"<ul>{rows}</ul>"
+        best = detect_containers(LexborHTMLParser(html))[0]
+        assert best.selector.count(".") <= 3, best.selector
+
     def test_the_same_page_at_a_different_width_detects_identically(self) -> None:
         a = detect_containers(shop(grid="col-md-3"))[0]
         b = detect_containers(shop(grid="col-lg-4"))[0]

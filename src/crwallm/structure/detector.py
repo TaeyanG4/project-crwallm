@@ -55,13 +55,31 @@ _NOISE_CLASS = re.compile(
     re.VERBOSE | re.IGNORECASE,
 )
 
+_TAILWIND_VARIANT = re.compile(r"[:\[\]]")
+"""Anything with a variant prefix or arbitrary-value brackets.
+
+``hover:opacity-95``, ``dark:outline-link``, ``xs:w-36``, ``[&>*]:mt-2``. A
+raw colon or bracket in a class attribute is a Tailwind variant essentially
+without exception - plain CSS has to escape both - so this one character
+identifies a whole family that no prefix list would keep up with.
+"""
+
 _LAYOUT_CLASS = re.compile(
     # Short prefixes must carry a value: "p-2" is padding, a bare "p" is
     # probably somebody's own class name and dropping it costs specificity.
-    r"^(?:d|p|m|w|h|gap|mt|mb|ml|mr|pt|pb|pl|pr|px|py|mx|my)[-_].+$"
-    r"|^(?:col|grid|flex|clearfix|rounded|shadow)(?:[-_].*)?$"
+    r"^(?:d|p|m|w|h|z|gap|mt|mb|ml|mr|pt|pb|pl|pr|px|py|mx|my|inset"
+    r"|top|left|right|bottom|order|basis|grow|shrink)[-_].+$"
+    r"|^(?:col|grid|flex|clearfix|rounded|shadow|block|inline|hidden|absolute"
+    r"|relative|fixed|sticky|truncate|antialiased|italic|underline|group|peer"
+    r"|uppercase|lowercase|capitalize|visible|invisible|isolate|contents)(?:[-_].*)?$"
     # These read as layout only when parameterised.
-    r"|^(?:row|container|wrapper|text|bg|border|align|justify)[-_].+$",
+    r"|^(?:row|container|wrapper|text|bg|border|align|justify|items|self"
+    r"|content|place|space|divide|overflow|object|aspect|select|pointer"
+    r"|cursor|transition|duration|ease|delay|animate|transform|translate"
+    r"|scale|rotate|skew|origin|opacity|blur|backdrop|filter|ring|outline"
+    r"|font|leading|tracking|whitespace|break|list|decoration|indent"
+    r"|align|table|columns|min|max|size|fill|stroke|from|via|to|scroll"
+    r"|snap|touch|will|accent|caret|appearance|resize)[-_].+$",
     re.IGNORECASE,
 )
 """Utility classes from Bootstrap, Tailwind and their imitators.
@@ -70,6 +88,21 @@ They describe where a thing sits, not what it is. Leaving them in a selector
 makes the recipe break when a site changes its grid from three columns to
 four - a restyle, not a restructure - and it makes two stores on the same
 platform look like different templates to the fingerprint.
+
+The list grew from running this against real sites. react.dev produced
+``a.aspect-video.dark:outline-link.hover:opacity-95.items-center.outline-link``
+``.overflow-hidden.select-none.transition-opacity.xs:w-36`` - a valid selector
+that one CSS edit would break, and useless as a description of what the
+element is.
+"""
+
+MAX_SELECTOR_CLASSES = 3
+"""How many classes a selector may carry.
+
+Independent of whether they are utilities. Eight classes is brittle even when
+every one of them is meaningful: the more the selector asserts, the more ways
+the page has to stop matching it. Three is enough to be specific on every real
+listing seen so far.
 """
 
 # Structural wrappers that never identify a record on their own.
@@ -102,7 +135,14 @@ def _classes(node: LexborNode) -> tuple[str, ...]:
     raw = node.attributes.get("class") or ""
     return tuple(
         sorted(
-            c for c in raw.split() if c and not _NOISE_CLASS.match(c) and not _LAYOUT_CLASS.match(c)
+            c
+            for c in raw.split()
+            if c
+            and not _NOISE_CLASS.match(c)
+            and not _TAILWIND_VARIANT.search(c)
+            # Negative utilities - "-space-x-2", "-mt-4" - are the same
+            # vocabulary with a sign in front.
+            and not _LAYOUT_CLASS.match(c.lstrip("-"))
         )
     )
 
@@ -123,7 +163,7 @@ def selector_for(node: LexborNode) -> str:
     Classes when there are any, tag otherwise. Not guaranteed unique - it is
     meant to match the whole group, which is the point.
     """
-    classes = _classes(node)
+    classes = _classes(node)[:MAX_SELECTOR_CLASSES]
     if classes:
         return f"{node.tag}.{'.'.join(classes)}"
     return str(node.tag)
