@@ -30,6 +30,9 @@ jobs:
 
     env:
       CRWALLM_DATABASE_URL: postgresql+asyncpg://crwallm:crwallm@localhost:5432/crwallm_test
+      # The job-pipeline tests skip themselves when no database answers,
+      # so CI has to point them at one or they silently never run.
+      CRWALLM_TEST_DATABASE_URL: postgresql+asyncpg://crwallm:crwallm@localhost:5432/crwallm_test
       CRWALLM_API_TOKEN: ci-token
 
     steps:

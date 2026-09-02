@@ -56,6 +56,17 @@ curl http://127.0.0.1:8000/ready
 
 `/docs`에서 OpenAPI 문서를 볼 수 있습니다 (dev 환경만).
 
+크롤을 큐에 넣습니다. 변경 엔드포인트는 토큰 헤더가 필요합니다.
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/jobs -H "Content-Type: application/json" -H "X-CRWALLM-Token: $CRWALLM_API_TOKEN" -d '{"spec":{"seed_urls":["https://example.com/"],"allowed_domains":["example.com"]}}'
+```
+
+```bash
+curl http://127.0.0.1:8000/api/jobs
+```
+
+
 ## 검사
 
 ```bash
@@ -84,6 +95,10 @@ pytest -q
 pytest -m "not integration and not e2e"
 ```
 
+`tests/integration/test_job_pipeline.py`는 PostgreSQL이 응답하지 않으면 스스로
+스킵합니다. Docker 없이도 나머지가 돌게 하기 위한 것이며, 그만큼 **CI에서만
+검증되는 테스트**라는 뜻이기도 합니다. 로컬에서 돌리려면 DB를 띄우세요.
+
 ## 마이그레이션
 
 모델을 바꾼 뒤:
@@ -106,8 +121,23 @@ alembic downgrade -1
 crwallm config
 ```
 
-Phase 2부터 `inspect`, `crawl`, `recipe`, `job`, `results` 명령이 추가됩니다.
-→ [docs/13_API_PLAN.md](docs/13_API_PLAN.md)
+```bash
+crwallm inspect https://example.com/
+```
+
+```bash
+crwallm crawl https://example.com/ --field "title=h1::text" --max-pages 5
+```
+
+```bash
+crwallm jobs submit https://example.com/ --max-pages 100
+```
+
+```bash
+crwallm worker
+```
+
+`recipe` 명령은 Phase 3에서 추가됩니다. → [docs/13_API_PLAN.md](docs/13_API_PLAN.md)
 
 ## 프로젝트 규약
 

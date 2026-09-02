@@ -83,17 +83,22 @@ GET    /api/recipes/{id}/versions
 
 ### Jobs
 ```text
-POST /api/jobs
-GET  /api/jobs
-GET  /api/jobs/{id}
-GET  /api/jobs/{id}/results
-GET  /api/jobs/{id}/errors           # 에러 분류 집계
-POST /api/jobs/{id}/cancel
-GET  /api/jobs/{id}/events           # SSE
-후기:
-POST /api/jobs/{id}/retry
-POST /api/jobs/{id}/resume
+POST /api/jobs                       # 구현됨 — 202, 토큰 필요
+GET  /api/jobs                       # 구현됨
+GET  /api/jobs/{id}                  # 구현됨 — error_counts / reject_counts 포함
+GET  /api/jobs/{id}/results          # 구현됨 — offset / limit
+POST /api/jobs/{id}/cancel           # Phase 8
+GET  /api/jobs/{id}/events           # Phase 8 — SSE
+POST /api/jobs/{id}/retry            # Phase 8
+POST /api/jobs/{id}/resume           # Phase 8
 ```
+
+에러 분류 집계는 별도 엔드포인트를 두지 않고 `GET /api/jobs/{id}` 응답에 담는다.
+한 번의 조회로 "무엇이 몇 건 실패했는가"까지 나와야 튜닝에 쓸 수 있다.
+
+**변경 엔드포인트만 토큰을 요구한다.** 조회는 로컬 사용자가 이미 볼 수 있는 것만
+노출하고, 토큰을 걸면 브라우저로 API를 열어보는 것이 불가능해진다.
+→ `11_SECURITY_MODEL.md` §1
 
 ### Models
 ```text

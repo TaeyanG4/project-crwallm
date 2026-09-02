@@ -85,14 +85,22 @@ async def open_crawl(
     *,
     archive_dir: Path | None = None,
     scope: Scope | None = None,
+    guard: SsrfGuard | None = None,
 ) -> AsyncIterator[AsyncGenerator[CrawlEvent, None]]:
     """Build the crawl, yield its event stream, and close the fetcher after.
 
     A context manager because the fetcher owns a connection pool: leaving it
     open leaks sockets, and closing it before the stream is drained truncates
     the crawl.
+
+    ``guard`` and ``scope`` default to the safe production choices. They are
+    parameters because both are things a caller legitimately decides for
+    itself - a recipe reuse narrows the scope
+    (docs/07_RECIPE_ARCHITECTURE.md), and an authenticated crawl (Phase 9)
+    will carry a guard configured for its session. Tests use the same door
+    rather than reaching through the wall.
     """
-    guard = SsrfGuard(CachingResolver(SystemResolver()))
+    guard = guard if guard is not None else SsrfGuard(CachingResolver(SystemResolver()))
     deps = CrawlDeps(
         fetcher=SafeHttpFetcher(guard),
         frontier=MemoryFrontier(),

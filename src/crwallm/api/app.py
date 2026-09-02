@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from crwallm import __version__
-from crwallm.api.routers import health
+from crwallm.api.routers import health, jobs
 from crwallm.api.security import TOKEN_HEADER, HostHeaderMiddleware
 from crwallm.config import Settings, get_settings
 from crwallm.db.session import dispose_engine
@@ -52,6 +52,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     app.include_router(health.router)
+    app.include_router(jobs.router)
     return app
 
 
