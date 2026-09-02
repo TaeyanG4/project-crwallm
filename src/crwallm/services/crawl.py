@@ -13,10 +13,11 @@ from collections.abc import AsyncGenerator, AsyncIterator
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from crwallm.crawler.contracts import Extractor
+from crwallm.crawler.contracts import Extractor, Fetcher
 from crwallm.crawler.extraction.css import CssExtractor, CssSpec, FieldSpec
 from crwallm.crawler.extraction.documents import DocumentExtractor
 from crwallm.crawler.extraction.structured import StructuredExtractor, StructuredSpec
+from crwallm.crawler.fetching.browser import BrowserFetcher, ScrollPolicy
 from crwallm.crawler.fetching.http import SafeHttpFetcher
 from crwallm.crawler.frontier.memory import MemoryFrontier
 from crwallm.crawler.traversal import CrawlDeps, run_crawl
@@ -24,6 +25,7 @@ from crwallm.policy.gate import Scope, UrlGate
 from crwallm.policy.ssrf import CachingResolver, SsrfGuard, SystemResolver
 from crwallm.schemas.events import CrawlEvent
 from crwallm.schemas.spec import CrawlSpec
+from crwallm.schemas.types import FetchMode
 from crwallm.services.recipe import (
     RecipeFileError,
     RecipeStore,
@@ -196,6 +198,26 @@ def parse_field(raw: str) -> FieldSpec:
     )
 
 
+def _browser_for(spec: CrawlSpec, guard: SsrfGuard) -> BrowserFetcher | None:
+    """A browser, only for the modes that can use one.
+
+    Constructed but not started: ``BrowserFetcher`` launches Chromium on its
+    first fetch, so an ``auto`` crawl that never needs rendering never pays
+    for it, and a crawl that does pays once (docs/04_CRAWLING_ARCHITECTURE.md).
+    """
+    if spec.fetch_mode not in {FetchMode.AUTO, FetchMode.BROWSER}:
+        return None
+    return BrowserFetcher(
+        guard,
+        max_pages=max(1, min(spec.limits.global_concurrency, 4)),
+        scroll=ScrollPolicy(
+            max_rounds=spec.browser.scroll_rounds,
+            pause_ms=spec.browser.scroll_pause_ms,
+            selector=spec.browser.scroll_selector,
+        ),
+    )
+
+
 @contextlib.asynccontextmanager
 async def open_crawl(
     plan: CrawlPlan,
@@ -218,8 +240,19 @@ async def open_crawl(
     rather than reaching through the wall.
     """
     guard = guard if guard is not None else SsrfGuard(CachingResolver(SystemResolver()))
+    browser = _browser_for(plan.spec, guard)
+
+    # A browser-only crawl uses it as *the* fetcher; auto keeps HTTP first and
+    # reaches for the browser when extraction came back empty.
+    primary: Fetcher = (
+        browser
+        if browser is not None and plan.spec.fetch_mode is FetchMode.BROWSER
+        else SafeHttpFetcher(guard)
+    )
+
     deps = CrawlDeps(
-        fetcher=SafeHttpFetcher(guard),
+        fetcher=primary,
+        browser=browser if plan.spec.fetch_mode is FetchMode.AUTO else None,
         frontier=MemoryFrontier(),
         gate=UrlGate.build(plan.spec, guard, scope=scope),
         extractor=build_extractor(plan),
@@ -230,3 +263,5 @@ async def open_crawl(
         yield run_crawl(plan.spec, deps)
     finally:
         await deps.fetcher.aclose()
+        if browser is not None and browser is not primary:
+            await browser.aclose()

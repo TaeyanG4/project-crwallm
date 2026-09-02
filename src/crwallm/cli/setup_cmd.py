@@ -16,6 +16,7 @@ import os
 import secrets
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Annotated
 
@@ -70,6 +71,10 @@ def setup(
         bool,
         typer.Option("--llm/--no-llm", help="Set up the model server too"),
     ] = True,
+    browser: Annotated[
+        bool,
+        typer.Option("--browser/--no-browser", help="Install Chromium for JS-rendered pages"),
+    ] = True,
     pull: Annotated[
         bool, typer.Option("--pull/--no-pull", help="Download the recommended model")
     ] = True,
@@ -108,6 +113,12 @@ def setup(
     else:
         _step("5. model server")
         _skip("skipped by --no-llm; levels 0-1 work without a model")
+
+    _step("6. browser")
+    if browser:
+        _setup_browser(problems)
+    else:
+        _skip("skipped by --no-browser; only `--mode browser` and `auto` need it")
 
     typer.echo("")
     if problems:
@@ -288,3 +299,29 @@ async def _check_models() -> None:
         return
     for model in installed:
         _ok(f"{model.name} ({model.size_gb} GB)")
+
+
+def _setup_browser(problems: list[str]) -> None:
+    """Install Chromium for the pages that only exist after their scripts run.
+
+    A separate download from the Python package, and large, so it is a step
+    rather than an import-time surprise. Failing here is a warning and not a
+    problem: every mode except ``browser`` and ``auto`` works without it, and
+    a crawler that refused to install over a browser nobody asked for would be
+    worse than one that says so.
+    """
+    try:
+        import playwright  # noqa: F401
+    except ImportError:
+        _warn("playwright is not installed - `--mode browser` and `auto` will not work")
+        return
+
+    code, output = _run([sys.executable, "-m", "playwright", "install", "chromium"], timeout=900)
+    if code == 0:
+        _ok("chromium is installed")
+        return
+
+    _warn("could not install chromium - run: python -m playwright install chromium")
+    tail = output.strip().splitlines()[-1:] or [""]
+    if tail[0]:
+        typer.echo(f"        {tail[0][:120]}")

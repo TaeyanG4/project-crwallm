@@ -101,6 +101,30 @@ class UrlFilters(BaseModel):
         return v
 
 
+class BrowserConfig(BaseModel):
+    """What the browser is allowed to do, when it is used at all.
+
+    Separate from ``CrawlLimits`` because these are meaningless in the HTTP
+    path, and a spec that mixed them would invite setting a scroll depth on a
+    crawl that will never open a browser.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    scroll_rounds: Annotated[int, Field(ge=0, le=200)] = 0
+    """Zero means do not scroll, which is right for most pages.
+
+    An infinite feed loads by calling an XHR, and calling that XHR directly is
+    roughly twenty times faster - which is what the browser's recorded
+    requests are for. Scrolling is the fallback for when that call cannot be
+    reconstructed (docs/04_CRAWLING_ARCHITECTURE.md)."""
+
+    scroll_pause_ms: Annotated[int, Field(ge=50, le=10_000)] = 700
+    scroll_selector: str | None = None
+    """What to count between scroll rounds. Page height stands in when absent,
+    and it also grows when a footer lazy-loads."""
+
+
 class CrawlSpec(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -121,6 +145,7 @@ class CrawlSpec(BaseModel):
 
     limits: CrawlLimits = CrawlLimits()
     spider: SpiderConfig = SpiderConfig()
+    browser: BrowserConfig = BrowserConfig()
     url_filters: UrlFilters = UrlFilters()
 
     recipe: str | None = None

@@ -144,6 +144,8 @@ def _build_spec(
     concurrency: int,
     include: list[str] | None,
     exclude: list[str] | None,
+    fetch_mode: str = "http",
+    scroll: int = 0,
 ) -> Any:
     from urllib.parse import urlsplit
 
@@ -162,16 +164,21 @@ def _build_spec(
             )
         domains = sorted(d for d in derived if d)
 
+    from crwallm.schemas.spec import BrowserConfig
+    from crwallm.schemas.types import FetchMode
+
     return CrawlSpec(
         seed_urls=tuple(seeds),
         allowed_domains=tuple(domains),
         mode=CrawlMode.SPIDER if follow else CrawlMode.COLLECT,
         follow_links=follow,
+        fetch_mode=FetchMode(fetch_mode),
         limits=CrawlLimits(
             max_pages=max_pages,
             max_depth=max_depth,
             global_concurrency=concurrency,
         ),
+        browser=BrowserConfig(scroll_rounds=scroll),
         url_filters=UrlFilters(include=tuple(include or ()), exclude=tuple(exclude or ())),
     )
 
@@ -199,6 +206,17 @@ def crawl(
     max_pages: Annotated[int, typer.Option("--max-pages")] = 20,
     max_depth: Annotated[int, typer.Option("--max-depth")] = 2,
     follow: Annotated[bool, typer.Option("--follow/--no-follow")] = False,
+    fetch_mode: Annotated[
+        str,
+        typer.Option(
+            "--mode",
+            help="http | browser | auto (HTTP first, render only when it finds nothing)",
+        ),
+    ] = "http",
+    scroll: Annotated[
+        int,
+        typer.Option("--scroll", help="Browser only: scroll rounds for content that loads lazily"),
+    ] = 0,
     concurrency: Annotated[int, typer.Option("--concurrency", "-c")] = 8,
     include: Annotated[list[str] | None, typer.Option("--include")] = None,
     exclude: Annotated[list[str] | None, typer.Option("--exclude")] = None,
@@ -247,6 +265,8 @@ def crawl(
             concurrency=concurrency,
             include=include,
             exclude=exclude,
+            fetch_mode=fetch_mode,
+            scroll=scroll,
         )
 
     if loaded is not None:

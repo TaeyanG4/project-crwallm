@@ -411,4 +411,97 @@ def create_app() -> FastAPI:
         """A link with an embedded newline - header smuggling via crawled HTML."""
         return '<html><body><a href="/ok\r\nX-Injected: 1">click</a></body></html>'
 
+    # ----------------------------------------------- pages that need a browser
+
+    @app.get("/js/rendered", response_class=HTMLResponse)
+    async def js_rendered() -> str:
+        """Content that does not exist in the bytes the server sends.
+
+        The whole justification for the browser path, and the case the auto
+        fallback is measuring: an HTTP fetch of this page extracts nothing.
+        """
+        return """<html><body>
+          <div id="app"></div>
+          <script>
+            fetch('/api/items').then(r => r.json()).then(items => {
+              document.getElementById('app').innerHTML =
+                items.map(i => `<div class="written-by-script">${i.title}</div>`).join('');
+            });
+          </script>
+        </body></html>"""
+
+    @app.get("/api/items")
+    async def api_items() -> list[dict[str, str]]:
+        """The XHR behind `/js/rendered`.
+
+        Recorded by the browser fetcher so a later crawl can call it directly
+        instead of rendering - which is the point of watching the network.
+        """
+        return [{"title": f"Item {n}"} for n in range(1, 6)]
+
+    @app.get("/js/ssrf", response_class=HTMLResponse)
+    async def js_ssrf() -> str:
+        """A page that asks the *browser* to fetch a metadata endpoint.
+
+        The navigation is to an allowed host, so the main-frame check passes.
+        The attack is entirely in the subresource, which is why the guard has
+        to run on every request the page makes.
+        """
+        return f"""<html><body>
+          <div id="out">clean</div>
+          <script>
+            fetch('http://{METADATA_V4}/latest/meta-data/')
+              .then(r => r.text())
+              .then(t => {{ document.getElementById('out').textContent = 'LEAKED:' + t; }})
+              .catch(() => {{ document.getElementById('out').textContent = 'REFUSED'; }});
+          </script>
+        </body></html>"""
+
+    @app.get("/js/heavy", response_class=HTMLResponse)
+    async def js_heavy() -> str:
+        """Subresources that carry bytes and no data."""
+        return """<html><head>
+          <link rel="stylesheet" href="/static/site.css">
+        </head><body>
+          <img src="/static/hero.png">
+          <img src="/static/thumb.jpg">
+          <script>
+            const f = new FontFace('X', 'url(/static/body.woff2)');
+          </script>
+          <p>text that matters</p>
+        </body></html>"""
+
+    @app.get("/js/infinite", response_class=HTMLResponse)
+    async def js_infinite() -> str:
+        """Appends on scroll, the way a feed does.
+
+        Bounded at 40 so a test that scrolls forever fails by assertion rather
+        than by timeout.
+
+        Each batch is deliberately taller than a viewport. A first batch that
+        fits on one screen cannot be scrolled at all, so ``scrollTo`` moves
+        nothing and no scroll event fires - which looks like a broken scroller
+        and is really a page with nothing below the fold.
+        """
+        return """<html><body>
+          <ul id="list"></ul>
+          <script>
+            let n = 0;
+            function add(count) {
+              const list = document.getElementById('list');
+              for (let i = 0; i < count && n < 40; i++) {
+                n++;
+                const li = document.createElement('li');
+                li.className = 'item';
+                li.style.height = '200px';
+                li.textContent = 'item-' + n;
+                list.appendChild(li);
+              }
+              document.body.style.minHeight = (n * 200) + 'px';
+            }
+            add(10);
+            window.addEventListener('scroll', () => add(10));
+          </script>
+        </body></html>"""
+
     return app

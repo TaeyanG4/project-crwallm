@@ -35,6 +35,7 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 
 from crwallm.crawler.contracts import (
+    ExtractionResult,
     Extractor,
     Fetcher,
     FetchFailure,
@@ -64,7 +65,7 @@ from crwallm.schemas.events import (
     UrlRejected,
 )
 from crwallm.schemas.spec import CrawlSpec
-from crwallm.schemas.types import ErrorKind, RejectReason
+from crwallm.schemas.types import ErrorKind, FetchMode, RejectReason
 from crwallm.storage.blob import ArchiveRef, BlobStore, NullBlobStore
 
 __all__ = ["CrawlDeps", "run_crawl"]
@@ -89,6 +90,13 @@ class CrawlDeps:
     gate: UrlGate
     extractor: Extractor
     archive: BlobStore | NullBlobStore
+
+    browser: Fetcher | None = None
+    """Used only by ``FetchMode.AUTO``, and only when HTTP produced nothing.
+
+    A second fetcher rather than a mode on the first: the two have different
+    lifecycles - one owns a connection pool, the other owns a Chromium
+    process - and a crawl that never escalates must never start the second."""
 
     sieve: RecordSieve | None = None
     """A recipe's ``required`` fields and ``filters``.
@@ -131,6 +139,11 @@ class _Crawl:
     pump: EventPump
     pages_fetched: int = 0
     records_extracted: int = 0
+    pages_rendered: int = 0
+    """How many needed the browser. Worth reporting: it is the difference
+    between a crawl that took a minute and one that took twenty."""
+
+    render_failures: int = 0
 
     # ------------------------------------------------------------- lifecycle
 
@@ -197,16 +210,7 @@ class _Crawl:
             await self._reject(item.url.url, verdict.reason, verdict.detail)
             return
 
-        outcome = await self.deps.fetcher.fetch(
-            FetchRequest(
-                url=item.url,
-                depth=item.depth,
-                mode=self.spec.fetch_mode,
-                timeout_s=self.spec.limits.request_timeout_s,
-                byte_limit=self.spec.limits.response_byte_limit,
-                max_redirects=self.spec.limits.redirect_max,
-            )
-        )
+        outcome = await self._fetch(item, self.spec.fetch_mode, self.deps.fetcher)
 
         if isinstance(outcome, FetchFailure):
             self._back_off(item, outcome)
@@ -221,9 +225,74 @@ class _Crawl:
             )
             return
 
-        await self._on_response(item, outcome)
+        result = self._extract(outcome)
+        outcome, result = await self._maybe_render(item, outcome, result)
+        await self._on_response(item, outcome, result)
 
-    async def _on_response(self, item: FrontierItem, response: FetchResponse) -> None:
+    async def _fetch(
+        self, item: FrontierItem, mode: FetchMode, fetcher: Fetcher
+    ) -> FetchResponse | FetchFailure:
+        return await fetcher.fetch(
+            FetchRequest(
+                url=item.url,
+                depth=item.depth,
+                mode=mode,
+                timeout_s=self.spec.limits.request_timeout_s,
+                byte_limit=self.spec.limits.response_byte_limit,
+                max_redirects=self.spec.limits.redirect_max,
+            )
+        )
+
+    def _extract(self, response: FetchResponse) -> ExtractionResult | None:
+        """None when the extractor does not handle this content type."""
+        if not self.deps.extractor.supports(response):
+            return None
+        return self.deps.extractor.extract(response)
+
+    async def _maybe_render(
+        self,
+        item: FrontierItem,
+        response: FetchResponse,
+        result: ExtractionResult | None,
+    ) -> tuple[FetchResponse, ExtractionResult | None]:
+        """Escalate to the browser when HTTP produced nothing.
+
+        Result-driven, not a DOM heuristic. "Does this look like a JS shell?"
+        is a guess that is wrong in both directions - a server-rendered page
+        can be script-heavy, and a shell can carry a plausible-looking
+        skeleton. "Did extraction produce a record?" is the question actually
+        being asked (docs/04_CRAWLING_ARCHITECTURE.md).
+
+        Decided here rather than after ``_on_response`` because that method
+        archives the body and emits ``PageFetched``: escalating afterwards
+        would count the page twice and store it twice.
+        """
+        if self.spec.fetch_mode is not FetchMode.AUTO or self.deps.browser is None:
+            return response, result
+        if response.fetch_mode is FetchMode.BROWSER:
+            return response, result
+        if result is not None and result.records:
+            return response, result
+
+        rendered = await self._fetch(item, FetchMode.BROWSER, self.deps.browser)
+        if isinstance(rendered, FetchFailure):
+            # The HTTP response stands. A browser that could not render is
+            # not evidence that the page is empty.
+            self.render_failures += 1
+            return response, result
+
+        self.pages_rendered += 1
+        # Kept whether or not it produced records. "Rendered and still empty"
+        # is a different diagnosis from "never rendered", and only the
+        # rendered body can tell the operator which one they have.
+        return rendered, self._extract(rendered)
+
+    async def _on_response(
+        self,
+        item: FrontierItem,
+        response: FetchResponse,
+        result: ExtractionResult | None,
+    ) -> None:
         # Archive first and unconditionally: extractors change between phases,
         # the bytes do not.
         ref: ArchiveRef = self.deps.archive.put(response.body)
@@ -243,11 +312,9 @@ class _Crawl:
             )
         )
 
-        if not self.deps.extractor.supports(response):
+        if result is None:
             await self._maybe_progress()
             return
-
-        result = self.deps.extractor.extract(response)
 
         if result.canonical_url:
             await self._note_canonical(item, result.canonical_url)

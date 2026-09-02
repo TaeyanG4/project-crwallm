@@ -29,6 +29,10 @@ dependencies = [
     # install failed on the first page it tried to parse.
     "selectolax>=0.3.21",
     "tldextract>=5.1",
+    # Chromium for the pages that only exist after their scripts run. The
+    # browser binary is a separate download: `python -m playwright install
+    # chromium`, which `crwallm setup` runs.
+    "playwright>=1.49",
     "pyyaml>=6.0",
     "rbloom>=1.5",
     "uvloop>=0.21; sys_platform != 'win32'",
