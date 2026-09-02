@@ -21,9 +21,18 @@ from crwallm.policy.gate import Scope, UrlGate
 from crwallm.policy.ssrf import CachingResolver, SsrfGuard, SystemResolver
 from crwallm.schemas.events import CrawlEvent
 from crwallm.schemas.spec import CrawlSpec
+from crwallm.services.recipe import RecipeFileError, RecipeStore, to_css_spec
 from crwallm.storage.blob import BlobStore, NullBlobStore
 
-__all__ = ["CrawlPlan", "build_extractor", "open_crawl"]
+__all__ = [
+    "CrawlPlan",
+    "RecipeNotApplicableError",
+    "build_extractor",
+    "open_crawl",
+    "resolve_plan",
+]
+
+DEFAULT_RECIPE_DIR = Path("recipes")
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +47,72 @@ class CrawlPlan:
 
     spec: CrawlSpec
     extraction: CssSpec = field(default_factory=CssSpec)
+
+
+class RecipeNotApplicableError(ValueError):
+    """The named recipe cannot be run against this spec."""
+
+
+def _narrow_domains(spec: tuple[str, ...], recipe: tuple[str, ...]) -> tuple[str, ...]:
+    """Intersect two scopes, never widening either.
+
+    A recipe carries the domains it is known to work on, and a spec carries
+    the domains this crawl is allowed to touch. Taking the union would let a
+    recipe grant reach the operator did not ask for, which is the one
+    direction that must never happen (docs/07_RECIPE_ARCHITECTURE.md).
+
+    The two are not always the same shape - a spec may say
+    ``quotes.toscrape.com`` where the recipe says ``toscrape.com`` - so the
+    narrower of each overlapping pair wins rather than requiring equality.
+    """
+    if not recipe:
+        return spec
+
+    kept: list[str] = []
+    for s in spec:
+        for r in recipe:
+            if s == r or s.endswith(f".{r}"):
+                kept.append(s)
+                break
+            if r.endswith(f".{s}"):
+                kept.append(r)
+                break
+    return tuple(dict.fromkeys(kept))
+
+
+def resolve_plan(spec: CrawlSpec, *, recipes_dir: Path | None = None) -> CrawlPlan:
+    """Turn a spec into something runnable, loading its recipe if it names one.
+
+    Both the CLI and the worker come through here. They used to build the plan
+    separately, and the worker's version simply never loaded a recipe - so
+    every queued job crawled correctly and extracted nothing, with no error to
+    show for it.
+    """
+    if spec.recipe is None:
+        return CrawlPlan(spec=spec)
+
+    store = RecipeStore(recipes_dir or DEFAULT_RECIPE_DIR)
+    try:
+        recipe = store.load(spec.recipe)
+    except RecipeFileError as exc:
+        raise RecipeNotApplicableError(str(exc)) from exc
+
+    if spec.recipe_version is not None and recipe.version != spec.recipe_version:
+        raise RecipeNotApplicableError(
+            f"recipe {spec.recipe!r} is version {recipe.version}, "
+            f"but the job pinned version {spec.recipe_version}"
+        )
+
+    scope = _narrow_domains(spec.allowed_domains, recipe.allowed_domains)
+    if not scope:
+        raise RecipeNotApplicableError(
+            f"recipe {spec.recipe!r} works on {list(recipe.allowed_domains)}, "
+            f"which does not overlap this crawl's {list(spec.allowed_domains)}"
+        )
+    if scope != spec.allowed_domains:
+        spec = spec.model_copy(update={"allowed_domains": scope})
+
+    return CrawlPlan(spec=spec, extraction=to_css_spec(recipe, follow_links=spec.follow_links))
 
 
 def build_extractor(plan: CrawlPlan) -> CssExtractor:

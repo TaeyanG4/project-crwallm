@@ -226,13 +226,23 @@ def crawl(
         )
 
     if loaded is not None:
-        from crwallm.services.recipe import to_css_spec
+        # Through the same resolver the worker uses, so a recipe run from the
+        # terminal and the same recipe run from a queued job cannot diverge -
+        # in particular the scope narrowing, which the CLI used to skip
+        # whenever --domain was given explicitly.
+        from crwallm.services.crawl import RecipeNotApplicableError, resolve_plan
 
-        extraction = to_css_spec(loaded, follow_links=follow)
+        with _user_errors():
+            try:
+                plan = resolve_plan(
+                    spec.model_copy(update={"recipe": recipe}), recipes_dir=recipe_dir
+                )
+            except RecipeNotApplicableError as exc:
+                _err(str(exc))
+                raise typer.Exit(1) from None
     else:
-        extraction = CssSpec(container=container, fields=fields)
+        plan = CrawlPlan(spec=spec, extraction=CssSpec(container=container, fields=fields))
 
-    plan = CrawlPlan(spec=spec, extraction=extraction)
     records = asyncio.run(_run_crawl(plan, archive=archive, quiet=quiet, allow_local=allow_local))
     _emit_records(records, output)
 

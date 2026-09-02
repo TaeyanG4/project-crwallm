@@ -70,6 +70,12 @@ class ErrorKind(StrEnum):
     # other
     DUPLICATE = "duplicate"
     CANCELLED = "cancelled"
+    CONFIG = "config"
+    """The job as submitted cannot run - a missing recipe, a version that no
+    longer matches, a scope the recipe does not cover.
+
+    Separate from ``INTERNAL`` because the operator caused it and can fix it,
+    where an internal error is ours."""
     INTERNAL = "internal"
 
 

@@ -29,7 +29,7 @@ from crwallm.crawler.adapters import drain_to
 from crwallm.db.session import dispose_engine, get_sessionmaker
 from crwallm.jobs.sink import PostgresEventSink
 from crwallm.schemas.types import ErrorKind
-from crwallm.services.crawl import CrawlPlan, open_crawl
+from crwallm.services.crawl import RecipeNotApplicableError, open_crawl, resolve_plan
 from crwallm.services.job import JobService
 
 __all__ = ["Worker", "main"]
@@ -46,9 +46,16 @@ def _worker_id() -> str:
 
 
 class Worker:
-    def __init__(self, *, archive_dir: Path | None = None, poll_s: float = IDLE_POLL_S) -> None:
+    def __init__(
+        self,
+        *,
+        archive_dir: Path | None = None,
+        recipes_dir: Path | None = None,
+        poll_s: float = IDLE_POLL_S,
+    ) -> None:
         self.id = _worker_id()
         self._archive_dir = archive_dir
+        self._recipes_dir = recipes_dir
         self._poll_s = poll_s
         self._stopping = asyncio.Event()
 
@@ -94,9 +101,17 @@ class Worker:
             jobs = JobService(session)
             sink = PostgresEventSink(session=session, job_id=job.id)
             try:
-                async with open_crawl(
-                    CrawlPlan(spec=spec), archive_dir=self._archive_dir
-                ) as events:
+                # Resolved here rather than at claim time: a recipe that has
+                # been edited or deleted since the job was queued should fail
+                # this job with a reason, not crash the claim loop.
+                plan = resolve_plan(spec, recipes_dir=self._recipes_dir)
+            except RecipeNotApplicableError as exc:
+                log.warning("job %s rejected: %s", job.id, exc)
+                await jobs.mark_failed(job.id, ErrorKind.CONFIG.value, str(exc))
+                return True
+
+            try:
+                async with open_crawl(plan, archive_dir=self._archive_dir) as events:
                     await drain_to(events, sink)
             except Exception as exc:
                 # A job that dies must not take the worker with it, and must
@@ -129,7 +144,7 @@ def main() -> None:
     loop_name = install_uvloop()
     log.info("event loop: %s", loop_name)
 
-    worker = Worker(archive_dir=settings.archive_dir)
+    worker = Worker(archive_dir=settings.archive_dir, recipes_dir=settings.recipes_dir)
 
     async def run() -> None:
         loop = asyncio.get_running_loop()

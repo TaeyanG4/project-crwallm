@@ -123,8 +123,21 @@ class CrawlSpec(BaseModel):
     spider: SpiderConfig = SpiderConfig()
     url_filters: UrlFilters = UrlFilters()
 
-    recipe_id: UUID | None = None
+    recipe: str | None = None
+    """Name of the recipe to extract with - the ``recipes/*.yaml`` stem.
+
+    The name, not ``Recipe.id``: the id is generated on each load and never
+    written to the file, so it identifies nothing across a queue boundary.
+    The filename is the identity the store, the CLI and the user all use
+    (docs/07_RECIPE_ARCHITECTURE.md).
+    """
+
     recipe_version: int | None = None
+    """Refuse to run if the recipe on disk is not this version.
+
+    A job can sit in the queue while the recipe is edited underneath it.
+    Pinning turns "quietly extracted with different rules" into an error.
+    """
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
@@ -155,7 +168,7 @@ class CrawlSpec(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _recipe_version_pairs_with_id(self) -> CrawlSpec:
-        if self.recipe_version is not None and self.recipe_id is None:
-            raise ValueError("recipe_version given without recipe_id")
+    def _recipe_version_pairs_with_a_recipe(self) -> CrawlSpec:
+        if self.recipe_version is not None and self.recipe is None:
+            raise ValueError("recipe_version given without recipe")
         return self

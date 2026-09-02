@@ -1,0 +1,23 @@
+name: quotes
+version: 1
+status: active
+source_url: https://quotes.toscrape.com/
+allowed_domains:
+- toscrape.com
+container: div.quote
+fields:
+- name: quote
+  selector: span.text
+- name: author
+  selector: span > small.author
+fingerprint: fp1:860596de201a28cfd110cfa3532f27b8
+quality:
+  record_count: 10
+  container_matched: true
+  fill_rates:
+    quote: 1.0
+    author: 1.0
+  consistency: 1.0
+  measured_at: '2026-09-02T09:52:18.497726Z'
+  sample_url: https://quotes.toscrape.com/
+notes: named by model from 5 detected columns

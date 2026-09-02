@@ -46,6 +46,11 @@ class Settings(BaseSettings):
 
     # -- storage ---------------------------------------------------------
     archive_dir: Path = Path("./data/archive")
+    recipes_dir: Path = Path("./recipes")
+    """Where the worker looks up a job's recipe by name.
+
+    The worker is a separate process and may not share the CLI's working
+    directory, so "./recipes" has to be a setting rather than an assumption."""
 
     @field_validator("api_host")
     @classmethod
