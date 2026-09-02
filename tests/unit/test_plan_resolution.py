@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from crwallm.schemas.filters import RecordFilter
 from crwallm.schemas.recipe import FieldRule, Recipe, RecipeQuality, RecipeStatus
 from crwallm.schemas.spec import CrawlSpec
 from crwallm.services.crawl import RecipeNotApplicableError, resolve_plan
@@ -297,3 +298,89 @@ class TestKnownSchemaRecipes:
         self.save(tmp_path, "feed")
         plan = resolve_plan(spec(recipe="doc", follow_links=True), recipes_dir=tmp_path)
         assert build_extractor(plan).css.follow_links is True  # type: ignore[union-attr]
+
+
+class TestFiltersReachTheCrawl:
+    """A recipe's filters must do the same thing under test and in a crawl.
+
+    They did not. ``recipe test`` dropped seven of ten quotes and the crawl
+    that followed collected all ten, with nothing saying so - the two things
+    that decide whether a recipe works disagreed silently.
+    """
+
+    def save(self, tmp_path: Path, **overrides: object) -> None:
+        base: dict[str, object] = {
+            "name": "quotes",
+            "source_url": "https://shop.test/list",
+            "allowed_domains": ("shop.test",),
+            "container": "div.quote",
+            "fields": (
+                FieldRule(name="quote", selector="span.text"),
+                FieldRule(name="author", selector="small.author"),
+            ),
+        }
+        base.update(overrides)
+        save_recipe_file(Recipe(**base), tmp_path)  # type: ignore[arg-type]
+
+    def test_a_recipes_filters_reach_the_plan(self, tmp_path: Path) -> None:
+        self.save(tmp_path, filters=(RecordFilter(field="author", op="eq", value="Einstein"),))
+        plan = resolve_plan(spec(recipe="quotes"), recipes_dir=tmp_path)
+        assert plan.sieve is not None
+        assert plan.sieve.active
+        assert plan.sieve.filters[0].value == "Einstein"
+
+    def test_required_fields_reach_the_plan(self, tmp_path: Path) -> None:
+        """Same gap, same fix: `required` was also honoured only under test."""
+        self.save(
+            tmp_path,
+            fields=(
+                FieldRule(name="quote", selector="span.text", required=True),
+                FieldRule(name="author", selector="small.author"),
+            ),
+        )
+        plan = resolve_plan(spec(recipe="quotes"), recipes_dir=tmp_path)
+        assert plan.sieve is not None
+        assert plan.sieve.required == ("quote",)
+
+    def test_a_recipe_with_neither_has_an_inactive_sieve(self, tmp_path: Path) -> None:
+        """So the crawl can skip the whole step rather than paying for it."""
+        self.save(tmp_path)
+        plan = resolve_plan(spec(recipe="quotes"), recipes_dir=tmp_path)
+        assert plan.sieve is not None
+        assert not plan.sieve.active
+
+    async def test_the_sieve_drops_and_explains(self, tmp_path: Path) -> None:
+        self.save(tmp_path, filters=(RecordFilter(field="author", op="eq", value="Einstein"),))
+        plan = resolve_plan(spec(recipe="quotes"), recipes_dir=tmp_path)
+        assert plan.sieve is not None
+
+        kept, dropped, reasons = await plan.sieve(
+            ({"author": "Einstein"}, {"author": "Rowling"}, {"author": "Austen"})
+        )
+        assert kept == ({"author": "Einstein"},)
+        assert dropped == 2
+        assert reasons == {"author eq": 2}
+
+    async def test_required_and_filters_are_counted_separately(self, tmp_path: Path) -> None:
+        """A row missing its title and a row that failed a filter are two
+        different problems, and merging them hides which recipe to fix."""
+        self.save(
+            tmp_path,
+            fields=(
+                FieldRule(name="quote", selector="span.text", required=True),
+                FieldRule(name="author", selector="small.author"),
+            ),
+            filters=(RecordFilter(field="author", op="eq", value="Einstein"),),
+        )
+        plan = resolve_plan(spec(recipe="quotes"), recipes_dir=tmp_path)
+        assert plan.sieve is not None
+
+        _kept, dropped, reasons = await plan.sieve(
+            (
+                {"quote": "a", "author": "Einstein"},
+                {"quote": "", "author": "Einstein"},
+                {"quote": "c", "author": "Rowling"},
+            )
+        )
+        assert dropped == 2
+        assert reasons == {"required": 1, "author eq": 1}

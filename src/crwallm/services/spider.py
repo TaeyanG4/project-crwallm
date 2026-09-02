@@ -84,6 +84,7 @@ async def open_spider(
         frontier=frontier,
         gate=UrlGate.build(spec, resolved_guard, scope=scope),
         extractor=build_extractor(plan),
+        sieve=plan.sieve,
         archive=BlobStore(archive_dir) if archive_dir else NullBlobStore(),
         deduper=ContentDeduper() if dedupe_content else None,
         soft_404=SoftNotFoundDetector(),

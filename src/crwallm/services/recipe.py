@@ -34,6 +34,7 @@ from crwallm.crawler.extraction.documents import DocumentExtractor
 from crwallm.crawler.extraction.structured import StructuredSpec
 from crwallm.schemas.filters import apply_filters
 from crwallm.schemas.recipe import Recipe, RecipeQuality, RecipeStatus
+from crwallm.services.semantic import RecordSieve, SemanticScorer
 
 __all__ = [
     "RecipeStore",
@@ -152,6 +153,20 @@ def to_css_spec(recipe: Recipe, *, follow_links: bool = False) -> CssSpec:
 
 
 DOCUMENT_SOURCES = frozenset({"feed", "table", "article"})
+
+
+def to_sieve(recipe: Recipe, *, scorer: SemanticScorer | None = None) -> RecordSieve:
+    """The recipe's ``required`` fields and ``filters``, ready to run.
+
+    They were honoured by ``recipe test`` and ignored by every real crawl,
+    which is the worst arrangement: the thing that proves a recipe works and
+    the thing that runs it disagreed, and nothing said so.
+    """
+    return RecordSieve(
+        filters=recipe.filters,
+        required=tuple(f.name for f in recipe.fields if f.required),
+        scorer=scorer,
+    )
 
 
 def to_structured_spec(recipe: Recipe) -> StructuredSpec | None:

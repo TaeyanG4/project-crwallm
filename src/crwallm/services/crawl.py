@@ -29,8 +29,10 @@ from crwallm.services.recipe import (
     RecipeStore,
     to_css_spec,
     to_document_spec,
+    to_sieve,
     to_structured_spec,
 )
+from crwallm.services.semantic import RecordSieve
 from crwallm.storage.blob import BlobStore, NullBlobStore
 
 __all__ = [
@@ -61,6 +63,9 @@ class CrawlPlan:
     """Set when the recipe reads a shape that carries its own schema - a
     feed, a table, an article. Ready-built rather than a spec, because there
     is nothing to configure beyond an optional rename."""
+
+    sieve: RecordSieve | None = None
+    """The recipe's ``required`` fields and ``filters``, if it has any."""
 
     structured: StructuredSpec | None = None
     """Set when the recipe reads declared data instead of the DOM.
@@ -140,6 +145,7 @@ def resolve_plan(spec: CrawlSpec, *, recipes_dir: Path | None = None) -> CrawlPl
         extraction=to_css_spec(recipe, follow_links=spec.follow_links),
         structured=to_structured_spec(recipe),
         document=to_document_spec(recipe),
+        sieve=to_sieve(recipe),
     )
 
 
@@ -217,6 +223,7 @@ async def open_crawl(
         frontier=MemoryFrontier(),
         gate=UrlGate.build(plan.spec, guard, scope=scope),
         extractor=build_extractor(plan),
+        sieve=plan.sieve,
         archive=BlobStore(archive_dir) if archive_dir else NullBlobStore(),
     )
     try:

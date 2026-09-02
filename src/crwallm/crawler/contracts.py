@@ -157,3 +157,28 @@ class UrlGate(Protocol):
     async def admit(self, url: NormalizedUrl, depth: int) -> Sequence[str]:
         """Empty sequence to admit; otherwise the rejection reasons."""
         ...
+
+
+class RecordSieve(Protocol):
+    """Narrows a page's records before they are emitted.
+
+    Declared here rather than imported from ``services`` because the layering
+    runs the other way: ``services`` assembles crawler pieces, and a crawler
+    that imported back into it would make the engine depend on how a recipe
+    happens to be stored.
+
+    Async because one of the rules it applies - "looks like a laptop review" -
+    has to reach an embedding model. Everything else about a filter is a
+    comparison, and the async signature is the price of the one that is not.
+    """
+
+    @property
+    def active(self) -> bool:
+        """False when there is nothing to apply, so the caller can skip it."""
+        ...
+
+    async def __call__(
+        self, records: tuple[dict[str, Any], ...]
+    ) -> tuple[tuple[dict[str, Any], ...], int, dict[str, int]]:
+        """Survivors, how many were dropped, and why - by rule."""
+        ...

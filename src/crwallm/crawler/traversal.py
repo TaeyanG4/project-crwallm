@@ -41,6 +41,7 @@ from crwallm.crawler.contracts import (
     FetchRequest,
     FetchResponse,
     FrontierItem,
+    RecordSieve,
 )
 from crwallm.crawler.dedupe import ContentDeduper, SoftNotFoundDetector
 from crwallm.crawler.engine import EventPump
@@ -59,6 +60,7 @@ from crwallm.schemas.events import (
     PatternBudgetExhausted,
     Progress,
     RecordsExtracted,
+    RecordsFiltered,
     UrlRejected,
 )
 from crwallm.schemas.spec import CrawlSpec
@@ -87,6 +89,14 @@ class CrawlDeps:
     gate: UrlGate
     extractor: Extractor
     archive: BlobStore | NullBlobStore
+
+    sieve: RecordSieve | None = None
+    """A recipe's ``required`` fields and ``filters``.
+
+    Applied here rather than inside each extractor: the rules are about
+    records, and records look the same whichever source produced them. Async
+    because a semantic filter has to reach an embedding model, which is the
+    reason this is not a plain callable on the extractor."""
 
     deduper: ContentDeduper | None = None
     """Content-level duplicate detection. Absent in Collect mode, where a
@@ -253,14 +263,27 @@ class _Crawl:
             await self._maybe_progress()
             return
 
-        if result.records:
-            self.records_extracted += len(result.records)
+        records = result.records
+        if records and self.deps.sieve is not None and self.deps.sieve.active:
+            records, dropped, reasons = await self.deps.sieve(records)
+            if dropped:
+                await self.pump.emit(
+                    RecordsFiltered(
+                        url=item.url.url,
+                        kept=len(records),
+                        dropped=dropped,
+                        reasons=reasons,
+                    )
+                )
+
+        if records:
+            self.records_extracted += len(records)
             await self.pump.emit(
                 RecordsExtracted(
                     url=item.url.url,
                     extractor=result.extractor,
-                    count=len(result.records),
-                    records=result.records,
+                    count=len(records),
+                    records=records,
                 )
             )
 
