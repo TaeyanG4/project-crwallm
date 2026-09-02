@@ -411,3 +411,109 @@ class TestRecordsFrom:
         )
         assert rows[0]["title"] == "Never Gonna Give You Up"
         assert rows[0]["url"] == "https://cdn.test/v.mp4"
+
+
+VIDEO_MICRODATA = """
+<div itemscope itemtype="https://schema.org/VideoObject">
+  <meta itemprop="name" content="Never Gonna Give You Up">
+  <meta itemprop="duration" content="PT3M34S">
+  <meta itemprop="genre" content="Music">
+  <link itemprop="url" href="https://v.test/watch?v=1">
+  <span itemprop="author" itemscope itemtype="https://schema.org/Person">
+    <link itemprop="url" href="https://v.test/@rick">
+    <link itemprop="name" content="Rick Astley">
+  </span>
+  <meta itemprop="regionsAllowed" content="KR">
+  <meta itemprop="regionsAllowed" content="JP">
+  <time itemprop="uploadDate" datetime="2009-10-24T23:57:33-07:00">2009</time>
+</div>
+"""
+
+
+class TestMicrodata:
+    """Added because it is *not* redundant with JSON-LD.
+
+    Measured across five sites it appeared on one - and on that one it carried
+    the duration and the channel, the two fields the same page's JSON-LD left
+    out and a video recipe returned as null.
+    """
+
+    def data(self, html: str = VIDEO_MICRODATA):
+        return extract_structured(page(body=html))
+
+    def test_an_item_and_its_type(self) -> None:
+        items = self.data().microdata
+        assert len(items) == 1
+        assert items[0]["@type"] == "VideoObject"
+
+    def test_meta_reads_its_content(self) -> None:
+        assert self.data().microdata[0]["duration"] == "PT3M34S"
+
+    def test_a_link_reads_its_href(self) -> None:
+        assert self.data().microdata[0]["url"] == "https://v.test/watch?v=1"
+
+    def test_content_wins_over_href_on_a_link(self) -> None:
+        """The specification reserves ``content`` for ``<meta>``. YouTube
+        writes ``<link itemprop="name" content="Rick Astley">``, and reading
+        href there returned an empty channel for a page that states it."""
+        assert self.data().microdata[0]["author"]["name"] == "Rick Astley"
+
+    def test_a_time_reads_its_datetime(self) -> None:
+        assert self.data().microdata[0]["uploadDate"].startswith("2009-10-24T")
+
+    def test_a_nested_scope_becomes_an_object(self) -> None:
+        author = self.data().microdata[0]["author"]
+        assert author["@type"] == "Person"
+        assert author["url"] == "https://v.test/@rick"
+
+    def test_a_nested_scope_is_not_also_top_level(self) -> None:
+        """It is reached as its parent's property; returning it twice would
+        double every count."""
+        assert len(self.data().microdata) == 1
+
+    def test_a_repeated_property_becomes_a_list(self) -> None:
+        assert self.data().microdata[0]["regionsAllowed"] == ["KR", "JP"]
+
+    def test_types_include_microdata(self) -> None:
+        assert "VideoObject" in self.data().types()
+
+    def test_find_types_matches_microdata_too(self) -> None:
+        assert find_types(self.data(), "videoobject")
+
+    def test_records_can_be_read_from_microdata(self) -> None:
+        rows = records_from(
+            self.data(),
+            StructuredSpec(
+                kind="microdata",
+                container="VideoObject",
+                fields=(("title", "name"), ("channel", "author.name"), ("length", "duration")),
+            ),
+        )
+        assert rows == (
+            {"title": "Never Gonna Give You Up", "channel": "Rick Astley", "length": "PT3M34S"},
+        )
+
+    def test_a_full_schema_url_matches_a_bare_type_name(self) -> None:
+        """``itemtype`` is a URL; a recipe says "VideoObject"."""
+        rows = records_from(
+            self.data(),
+            StructuredSpec(kind="microdata", container="videoobject", fields=(("t", "name"),)),
+        )
+        assert rows
+
+    def test_a_scope_with_only_a_type_is_not_an_item(self) -> None:
+        assert (
+            extract_structured(page(body='<div itemscope itemtype="x/Thing"></div>')).microdata
+            == ()
+        )
+
+    def test_a_page_without_microdata_reports_none(self) -> None:
+        assert extract_structured(page(body="<p>plain</p>")).microdata == ()
+
+    def test_jsonld_and_microdata_stay_separate(self) -> None:
+        """A page can carry both and they can disagree. Merging them would
+        hide which one a recipe is actually reading when one of them changes."""
+        tree = page(ld({"@type": "VideoObject", "name": "From JSON-LD"}), VIDEO_MICRODATA)
+        data = extract_structured(tree)
+        assert data.jsonld[0]["name"] == "From JSON-LD"
+        assert data.microdata[0]["name"] == "Never Gonna Give You Up"

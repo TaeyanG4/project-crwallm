@@ -638,6 +638,14 @@ def _print_declared(tree: Any) -> None:
             for path, sample in _leaf_paths(nodes[0]):
                 typer.echo(f"     {path:28} {sample}")
 
+    if data.microdata:
+        typer.echo("")
+        typer.echo("declared (microdata):")
+        for item in data.microdata[:3]:
+            typer.echo(f" * {item.get('@type', '?')}")
+            for path, sample in _leaf_paths(item):
+                typer.echo(f"     {path:28} {sample}")
+
     if data.embedded:
         typer.echo("")
         typer.echo("declared (embedded JSON):")

@@ -24,7 +24,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from selectolax.lexbor import LexborHTMLParser
+from selectolax.lexbor import LexborHTMLParser, LexborNode
 
 from crwallm.crawler.contracts import ExtractionResult, FetchResponse
 from crwallm.crawler.extraction.css import CssSpec, extract_canonical, extract_links, parse
@@ -35,6 +35,7 @@ __all__ = [
     "StructuredData",
     "StructuredExtractor",
     "StructuredSpec",
+    "extract_microdata",
     "extract_structured",
     "find_types",
     "iter_jsonld_nodes",
@@ -109,6 +110,15 @@ class StructuredData:
     jsonld: tuple[dict[str, Any], ...] = ()
     """Flattened: ``@graph`` unwrapped, arrays spread, one dict per entity."""
 
+    microdata: tuple[dict[str, Any], ...] = ()
+    """schema.org in attributes rather than in a script.
+
+    Kept apart from ``jsonld`` even though both are schema.org, because a page
+    can carry both and they can disagree. YouTube's JSON-LD names the video
+    and its upload date; its microdata adds duration, channel and view count -
+    the fields a video recipe returned as null. Merging them would hide which
+    one a recipe is actually reading when one of them changes."""
+
     embedded: dict[str, Any] = field(default_factory=dict)
     """Framework state blobs, keyed by script id."""
 
@@ -117,7 +127,7 @@ class StructuredData:
     def types(self) -> tuple[str, ...]:
         """Every schema.org type present, in order of first appearance."""
         seen: list[str] = []
-        for node in self.jsonld:
+        for node in (*self.jsonld, *self.microdata):
             for value in _as_list(node.get("@type")):
                 if isinstance(value, str) and value not in seen:
                     seen.append(value)
@@ -125,7 +135,12 @@ class StructuredData:
 
     @property
     def is_empty(self) -> bool:
-        return not self.jsonld and not self.embedded and self.meta == PageMetadata()
+        return (
+            not self.jsonld
+            and not self.microdata
+            and not self.embedded
+            and self.meta == PageMetadata()
+        )
 
 
 def _as_list(value: Any) -> list[Any]:
@@ -217,7 +232,7 @@ def find_types(data: StructuredData, *wanted: str) -> tuple[dict[str, Any], ...]
     targets = {w.casefold() for w in wanted}
     return tuple(
         node
-        for node in data.jsonld
+        for node in (*data.jsonld, *data.microdata)
         if any(isinstance(t, str) and t.casefold() in targets for t in _as_list(node.get("@type")))
     )
 
@@ -324,6 +339,7 @@ def extract_structured(tree: LexborHTMLParser) -> StructuredData:
 
     return StructuredData(
         jsonld=tuple(jsonld),
+        microdata=extract_microdata(tree),
         embedded=embedded,
         meta=_read_metadata(tree),
     )
@@ -410,6 +426,12 @@ def records_from(data: StructuredData, spec: StructuredSpec) -> tuple[dict[str, 
     items: list[Any]
     if spec.kind == "jsonld":
         items = list(find_types(data, spec.container)) if spec.container else list(data.jsonld)
+    elif spec.kind == "microdata":
+        items = (
+            [n for n in data.microdata if _has_type(n, spec.container)]
+            if spec.container
+            else list(data.microdata)
+        )
     elif spec.kind == "embedded":
         if not spec.container:
             return ()
@@ -465,3 +487,144 @@ class StructuredExtractor:
             text=None,
             content_hash=None,
         )
+
+
+# ---------------------------------------------------------------- microdata
+
+_URL_ATTR_TAGS = {
+    "a": "href",
+    "area": "href",
+    "link": "href",
+    "audio": "src",
+    "embed": "src",
+    "iframe": "src",
+    "img": "src",
+    "source": "src",
+    "track": "src",
+    "video": "src",
+    "object": "data",
+}
+
+
+def _microdata_value(node: LexborNode) -> Any:
+    """One property's value, by the rules the spec gives for each element.
+
+    ``<meta content>``, ``<a href>``, ``<time datetime>`` and text everywhere
+    else. Reading text from a ``<meta>`` would give an empty string, and
+    reading text from a ``<link>`` would give whatever followed it - the same
+    void-element trap that broke the first feed parser.
+    """
+    attrs = node.attributes
+    tag = str(node.tag).lower()
+
+    # `content` first, whatever the tag. The specification reserves it for
+    # `<meta>`, and YouTube writes `<link itemprop="name" content="Rick
+    # Astley">` - reading `href` there returned an empty channel name for a
+    # page that plainly states it. Parsing the web as it is, not as specified.
+    content = (attrs.get("content") or "").strip()
+    if content:
+        return content
+
+    if tag == "meta":
+        return ""
+    if tag in _URL_ATTR_TAGS:
+        return (attrs.get(_URL_ATTR_TAGS[tag]) or "").strip()
+    if tag in {"time", "data"}:
+        return (attrs.get("datetime") or attrs.get("value") or "").strip() or node.text(
+            deep=True, strip=True
+        )
+    if tag == "meter":
+        return (attrs.get("value") or "").strip()
+    return node.text(deep=True, strip=True)
+
+
+def _read_item(scope: LexborNode, depth: int = 0) -> dict[str, Any]:
+    """One ``itemscope`` and the properties belonging to it.
+
+    Walked downward from the scope rather than upward from each property.
+    selectolax hands back a fresh wrapper on every ``.parent`` access, so
+    "which scope owns this property" cannot be answered by walking up - the
+    same constraint that shaped the structure detector.
+
+    A nested ``itemscope`` ends the walk for that branch: its properties
+    belong to it, not to this one.
+    """
+    item: dict[str, Any] = {}
+    item_type = (scope.attributes.get("itemtype") or "").strip()
+    if item_type:
+        item["@type"] = item_type.rsplit("/", 1)[-1]
+
+    if depth > 5:
+        return item
+
+    def visit(node: LexborNode) -> None:
+        for child in node.iter(include_text=False):
+            name = (child.attributes.get("itemprop") or "").strip()
+            nested = "itemscope" in child.attributes
+
+            if name and nested:
+                value: Any = _read_item(child, depth + 1)
+            elif name:
+                value = _microdata_value(child)
+            else:
+                if not nested:
+                    visit(child)
+                continue
+
+            if name in item:
+                # Repeated properties are legal and mean a list - `regionsAllowed`
+                # on a video is dozens of them.
+                existing = item[name]
+                item[name] = [*existing, value] if isinstance(existing, list) else [existing, value]
+            else:
+                item[name] = value
+
+            if not nested:
+                visit(child)
+
+    visit(scope)
+    return item
+
+
+def extract_microdata(tree: LexborHTMLParser) -> tuple[dict[str, Any], ...]:
+    """schema.org microdata, as flat entities like the JSON-LD ones.
+
+    Worth having because it is not redundant. Measured across five sites it
+    appeared on one - and on that one it carried ``duration`` and ``author``,
+    the two fields the same page's JSON-LD left out and a video recipe
+    returned as null. Complementary rather than an older spelling.
+
+    Top-level scopes only: a nested one is reached as its parent's property
+    value, and returning it twice would double every count.
+    """
+    # Descended from the root rather than filtered from a flat list.
+    # `node.css(...)` in selectolax includes the node itself, unlike the DOM's
+    # querySelectorAll - so "scopes inside this scope" quietly meant "this
+    # scope and the ones inside it", every scope marked itself nested, and the
+    # whole function returned nothing.
+    top: list[dict[str, Any]] = []
+
+    def descend(node: LexborNode, depth: int = 0) -> None:
+        if depth > 12:
+            return
+        for child in node.iter(include_text=False):
+            if "itemscope" in child.attributes:
+                item = _read_item(child)
+                # A scope carrying only its type describes nothing.
+                if len(item) > 1 or (item and "@type" not in item):
+                    top.append(item)
+                continue  # its own scopes are its properties, not top level
+            descend(child, depth + 1)
+
+    root = tree.body or tree.root
+    if root is not None:
+        descend(root)
+    return tuple(top)
+
+
+def _has_type(node: dict[str, Any], wanted: str) -> bool:
+    target = wanted.casefold()
+    return any(
+        isinstance(t, str) and t.rsplit("/", 1)[-1].casefold() == target
+        for t in _as_list(node.get("@type"))
+    )

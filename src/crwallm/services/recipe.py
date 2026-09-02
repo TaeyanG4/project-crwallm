@@ -171,7 +171,7 @@ def to_sieve(recipe: Recipe, *, scorer: SemanticScorer | None = None) -> RecordS
 
 def to_structured_spec(recipe: Recipe) -> StructuredSpec | None:
     """The declared-data half of a recipe, or None for any other source."""
-    if recipe.source not in {"jsonld", "embedded"}:
+    if recipe.source not in {"jsonld", "microdata", "embedded"}:
         return None
     return StructuredSpec(
         kind=recipe.source,

@@ -183,7 +183,7 @@ class Recipe(BaseModel):
 
     fetch_mode: FetchMode = FetchMode.HTTP
 
-    source: Literal["css", "jsonld", "embedded", "feed", "table", "article"] = "css"
+    source: Literal["css", "jsonld", "microdata", "embedded", "feed", "table", "article"] = "css"
     """Where the records come from.
 
     ``css`` reads the rendered DOM. ``jsonld`` and ``embedded`` read what the

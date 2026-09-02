@@ -1,7 +1,7 @@
 name: yt-video
 version: 1
 status: candidate
-source: jsonld
+source: microdata
 source_url: https://www.youtube.com/watch?v=dQw4w9WgXcQ
 allowed_domains:
 - youtube.com
@@ -9,10 +9,18 @@ container: VideoObject
 fields:
 - name: title
   selector: name
-- name: url
-  selector: '@id'
-- name: thumbnail
-  selector: thumbnailUrl
+- name: channel
+  selector: author.name
+- name: duration
+  selector: duration
 - name: uploaded
   selector: uploadDate
-notes: paths taken from `crwallm inspect` - YouTube declares no duration or channel
+- name: url
+  selector: url
+- name: thumbnail
+  selector: thumbnailUrl
+- name: genre
+  selector: genre
+notes: |
+  microdata rather than JSON-LD: the same page carries both, and only the
+  microdata has duration and channel. Paths from `crwallm inspect`.
