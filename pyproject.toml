@@ -56,6 +56,12 @@ dev = [
 [project.scripts]
 crwallm = "crwallm.cli.main:app"
 
+# A console-less launcher. The icon starts this one, so double-clicking does
+# not leave a black cmd window sitting behind the app for the person to wonder
+# about and eventually close, taking the app with it.
+[project.gui-scripts]
+crwallm-desktop = "crwallm.desktop.app:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

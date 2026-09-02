@@ -34,17 +34,25 @@ GPU가 부족하면 클라우드 API로 바꾸거나, 모델 없이 수동으로
 git clone https://github.com/TaeyanG4/project-crwallm.git
 cd project-crwallm
 uv sync
-uv run crwallm setup
 ```
 
-`uv sync`가 가상환경까지 만듭니다 — `uv venv`를 따로 부르지 마세요.
-이미 `.venv`가 있으면 그것을 맞춰 갱신합니다.
+이게 전부입니다. `uv sync`가 가상환경까지 만듭니다 — `uv venv`를 따로 부르지
+마세요. 이미 `.venv`가 있으면 그것을 맞춰 갱신합니다.
 
-`setup`이 설정 파일·DB·모델 서버·모델·Chromium까지 준비합니다.
-모델을 쓰지 않으려면 `--no-llm`, 브라우저가 필요 없으면 `--no-browser`.
+필요한 것: Python 3.12와 [uv](https://docs.astral.sh/uv/). 끝입니다.
+**Docker도 Node도 모델도 필요 없습니다.**
 
-필요한 것: Python 3.12, Docker(Postgres·Ollama용), [uv](https://docs.astral.sh/uv/),
-Node 20+ (웹 UI용). 모델과 Chromium은 저장소에 없고 `setup`이 내려받습니다.
+### 나중에, 필요해지면
+
+| 하고 싶은 것 | 그때 필요한 것 | 준비 |
+|---|---|---|
+| 페이지 모으고 엑셀로 저장 | — | 없음 |
+| 컬럼 이름 자동으로 붙이기 | Ollama | `crwallm setup --no-browser` |
+| 스크립트로 그려지는 페이지 | Chromium | `crwallm setup --no-llm` |
+| 잡 이력·재시도·웹 UI | Docker, Node 20+ | `crwallm setup` |
+
+`setup`은 **부를 때만** 돕니다. 아무것도 부르지 않으면 아무것도 설치되지
+않고, 창은 그대로 열립니다.
 
 ### `crwallm`을 어떻게 부르나
 
@@ -66,19 +74,21 @@ crwallm <명령>
 
 ## 바로 써보기
 
-**`crwallm.bat`을 더블클릭하세요.** 없는 것을 알아서 채우고 셋을 함께 띄웁니다.
+**`crwallm.bat`을 더블클릭하세요.** 창이 하나 뜹니다. 그게 전부입니다.
 바탕화면에 두려면 우클릭 → 바로 가기 만들기.
 
-터미널을 쓴다면:
+첫 실행만 설치하느라 1분쯤 걸리고, 그 다음부터는 바로 열립니다.
 
-```bash
-crwallm up
+창에서 하는 일은 세 단계입니다.
+
+```text
+①  주소를 붙여넣고  [ 살펴보기 ]
+②  페이지에 있는 것들이 예시와 함께 나옵니다 → 모으고 싶은 것에 이름을 붙이고  [ 모으기 ]
+③  표가 나오면  [ 엑셀로 저장 ]
 ```
 
-API·워커·웹 UI가 한 번에 뜨고 브라우저가 열립니다. Ctrl-C로 전부 내려갑니다.
-UI 없이 API만 원하면 `crwallm serve`.
-
-첫 실행에서는 `web/`의 의존성을 설치하느라 1분쯤 걸립니다.
+셀렉터를 쓰지 않고, 모델을 부르지 않고, Docker를 켜지 않습니다.
+터미널에서 같은 창을 열려면 `crwallm desktop`.
 
 ## 터미널에서 30초
 
@@ -105,25 +115,32 @@ crwallm crawl https://quotes.toscrape.com/ --recipe quotes --follow --max-pages 
 
 짧게:
 
-| 하고 싶은 것 | |
-|---|---|
-| 페이지 구조 보기 | `crwallm inspect <url>` |
-| 레시피 만들기 | `crwallm recipe adapt <name> --url <url>` |
-| 한 번 돌려보기 | `crwallm crawl <url> --recipe <name>` |
-| 사이트 전체 훑기 | `crwallm spider <url> --recipe <name>` |
-| 백그라운드로 돌리기 | `crwallm jobs submit ...` + `crwallm worker` |
-| 데이터 꺼내기 | `crwallm jobs export <id> -f csv -o out.csv` |
-| 웹 UI | `crwallm up` |
+| 하고 싶은 것 | | Docker |
+|---|---|---|
+| 창 열기 | `crwallm desktop` (= `crwallm.bat`) | — |
+| 페이지 구조 보기 | `crwallm inspect <url>` | — |
+| 레시피 만들기 | `crwallm recipe adapt <name> --url <url>` | — |
+| 한 번 돌려보기 | `crwallm crawl <url> --recipe <name>` | — |
+| 사이트 전체 훑기 | `crwallm spider <url> --recipe <name>` | — |
+| 백그라운드로 돌리기 | `crwallm jobs submit ...` + `crwallm worker` | 필요 |
+| 데이터 꺼내기 | `crwallm jobs export <id> -f csv -o out.csv` | 필요 |
+| 웹 UI | `crwallm up` | 필요 |
+
+Docker가 필요한 줄은 셋뿐입니다. 이력을 남기는 일 — 잡 큐, 재시도,
+나중에 다시 꺼내보기 — 만 데이터베이스를 씁니다. 나머지는 켜지 않습니다.
 
 ## 웹 UI
+
+창으로 되는 일이면 창을 쓰세요. 웹 UI는 창에 없는 것 — 잡 이력, 재시도,
+여러 크롤 동시 운영 — 이 필요할 때만입니다.
 
 ```bash
 crwallm up
 ```
 
 세 프로세스가 필요합니다 — API, 잡을 실제로 돌리는 워커, UI. `up`이 셋을
-함께 띄웁니다. **워커 없이는 UI가 잡을 큐에 넣고 아무 일도 일어나지
-않는데, 화면에는 그 이유가 나오지 않습니다.**
+함께 띄우고, 여기서 처음으로 Docker를 켭니다. **워커 없이는 UI가 잡을 큐에
+넣고 아무 일도 일어나지 않는데, 화면에는 그 이유가 나오지 않습니다.**
 
 따로 띄우려면:
 
