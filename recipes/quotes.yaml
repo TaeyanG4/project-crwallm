@@ -1,6 +1,6 @@
 name: quotes
 version: 1
-status: active
+status: candidate
 source_url: https://quotes.toscrape.com/
 allowed_domains:
 - toscrape.com
@@ -8,16 +8,25 @@ container: div.quote
 fields:
 - name: quote
   selector: span.text
-- name: author
+- name: author_name
   selector: span > small.author
+- name: author_url
+  selector: span > a
+  type: href
+  transform:
+  - to_absolute_url
+- name: tags_text
+  selector: div.tags > a.tag
 fingerprint: fp1:860596de201a28cfd110cfa3532f27b8
 quality:
   record_count: 10
   container_matched: true
   fill_rates:
     quote: 1.0
-    author: 1.0
+    author_name: 1.0
+    author_url: 1.0
+    tags_text: 1.0
   consistency: 1.0
-  measured_at: '2026-09-02T09:52:18.497726Z'
+  measured_at: '2026-09-02T10:40:02.077575Z'
   sample_url: https://quotes.toscrape.com/
 notes: named by model from 5 detected columns

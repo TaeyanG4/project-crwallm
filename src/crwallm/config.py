@@ -52,6 +52,11 @@ class Settings(BaseSettings):
     The worker is a separate process and may not share the CLI's working
     directory, so "./recipes" has to be a setting rather than an assumption."""
 
+    # -- models ----------------------------------------------------------
+    ollama_base_url: str = "http://127.0.0.1:11434"
+    llm_model: str = "qwen3.5:9b"
+    embed_model: str = "bge-m3"
+
     @field_validator("api_host")
     @classmethod
     def _warn_on_public_bind(cls, v: str) -> str:

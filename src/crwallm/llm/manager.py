@@ -20,7 +20,8 @@ from typing import Any
 
 import httpx
 
-from crwallm.llm.gateway import ModelUnavailableError
+from crwallm.config import Settings
+from crwallm.llm.gateway import ModelGateway, ModelUnavailableError
 from crwallm.llm.hardware import HardwareProfile, detect_hardware
 
 __all__ = ["CatalogEntry", "InstalledModel", "ModelCatalog", "ModelManager", "PullProgress"]
@@ -269,3 +270,23 @@ async def describe_environment(
         "recommended": recommended,
         "catalog": cat,
     }
+
+
+def build_gateway(settings: Settings) -> ModelGateway:
+    """The one place a gateway is constructed.
+
+    It was being assembled inline at each call site from ``os.environ``, which
+    is how two entry points end up talking to different models without anyone
+    noticing - the same divergence that let the worker run crawls without a
+    recipe. Routing config comes from ``Settings`` so ``.env``, the CLI and the
+    API agree by construction.
+    """
+    from crwallm.llm.routing import RoutedGateway, RoutingConfig
+
+    return RoutedGateway(
+        RoutingConfig.local_default(
+            base_url=settings.ollama_base_url,
+            model=settings.llm_model,
+            embed_model=settings.embed_model,
+        )
+    )

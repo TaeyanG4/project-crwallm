@@ -49,6 +49,16 @@ class TaskKind(StrEnum):
     work goes somewhere else (docs/08_LLM_ARCHITECTURE.md).
     """
 
+    PLAN = "plan"
+    """Choose the next action in a conversation.
+
+    A closed set of verbs and a handful of typed fields, so the schema is
+    small - but the model has to follow a procedure (look at the page before
+    writing a recipe, write the recipe before crawling with it) and notice
+    when a step did not work. Harder than COMPILE_SPEC, easier than
+    ADAPT_SELECTORS, and the one the user is waiting on, so latency counts
+    for more here than anywhere else."""
+
     COMPILE_SPEC = "compile_spec"
     """Natural language to a CrawlSpec. A small, constrained JSON schema -
     a 4B model handles it."""
