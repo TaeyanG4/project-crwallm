@@ -80,7 +80,13 @@ class Bridge:
         )
         self._thread.start()
 
-    def attach(self, window: Any) -> None:
+    # Underscored, and not for style: pywebview exposes every public method of
+    # this object to the page, so `attach` and `close` were two more verbs the
+    # JavaScript could call. `close` stops the engine loop, after which every
+    # later call from the window blocks forever. The docstring above says four
+    # verbs; the leading underscore is what makes that true.
+
+    def _attach(self, window: Any) -> None:
         """Given the window once it exists, so progress can be pushed to it."""
         self._window = window
 
@@ -103,7 +109,19 @@ class Bridge:
                 f"{json.dumps(event)}, {json.dumps(payload, default=str)})"
             )
 
-    def close(self) -> None:
+    def _guard(self) -> Any:
+        """The SSRF policy for everything this window does.
+
+        Both halves get the same one. They did not: `look` was built with the
+        session's guard and `collect` let ``open_crawl`` default to its own, so
+        ``--allow-local`` inspected a dev server and then collected nothing
+        from it - a crawl that ran, fetched zero pages, and blamed the page.
+        """
+        from crwallm.policy.local import build_guard
+
+        return build_guard(allow_local=self._allow_local)
+
+    def _shutdown(self) -> None:
         self._cancel.set()
         self._loop.call_soon_threadsafe(self._loop.stop)
 
@@ -193,12 +211,11 @@ class Bridge:
         from crwallm.crawler.extraction.css import parse
         from crwallm.crawler.extraction.structured import extract_structured
         from crwallm.crawler.fetching.http import SafeHttpFetcher
-        from crwallm.policy.local import build_guard
         from crwallm.policy.url import normalize
         from crwallm.schemas.types import FetchMode
         from crwallm.structure.detector import detect_containers
 
-        fetcher = SafeHttpFetcher(build_guard(allow_local=self._allow_local))
+        fetcher = SafeHttpFetcher(self._guard())
         try:
             outcome = await fetcher.fetch(
                 FetchRequest(
@@ -245,9 +262,19 @@ class Bridge:
             "title": title.text(strip=True) if title is not None else "",
             "container": best.selector,
             "count": best.count,
+            # Empty rather than absent. The other branch of this function sets
+            # it, and a key that exists on one path and not the other is how
+            # the window ends up reading `undefined` and showing nothing.
+            "hint": "",
             "columns": [
                 {
                     "index": column.index,
+                    # The window never shows this - the whole point is that
+                    # nobody reads a selector - but `collect` builds the plan
+                    # from what `look` found, and it has to come from
+                    # somewhere. Leaving it out was a KeyError waiting for the
+                    # first person who pressed the button.
+                    "selector": column.selector,
                     "samples": [s for s in column.samples[:2] if s],
                     "kind": column.kind,
                     "fill": round(column.fill_rate * 100),
@@ -278,7 +305,7 @@ class Bridge:
         rows: list[dict[str, Any]] = []
         pages = failed = 0
 
-        async with open_crawl(plan) as events:
+        async with open_crawl(plan, guard=self._guard()) as events:
             async for event in events:
                 if self._cancel.is_set():
                     break
@@ -320,17 +347,19 @@ def _build(url: str, looked: dict[str, Any], picks: list[Picked], options: dict[
     """Turn "these columns, this deep" into a spec the engine understands."""
     from urllib.parse import urlsplit as _split
 
-    from crwallm.crawler.extraction.css import CssSpec, FieldSpec
+    from crwallm.crawler.extraction.plan import Extraction, Field
     from crwallm.policy.domains import registrable_domain
     from crwallm.schemas.spec import CrawlLimits, CrawlSpec
     from crwallm.schemas.types import CrawlMode
 
     by_index = {int(c["index"]): c for c in looked["columns"]}
     fields = tuple(
-        FieldSpec(
+        Field(
             name=p.name,
-            selector=by_index[p.index]["selector"],
-            type=by_index[p.index]["kind"] if by_index[p.index]["kind"] != "text" else "text",
+            path=by_index[p.index]["selector"],
+            kind=by_index[p.index]["kind"],
+            # A link that only works from the page it was found on is not much
+            # use in a spreadsheet.
             transform=("to_absolute_url",) if by_index[p.index]["kind"] == "href" else (),
         )
         for p in picks
@@ -356,7 +385,7 @@ def _build(url: str, looked: dict[str, Any], picks: list[Picked], options: dict[
             global_concurrency=4,
         ),
     )
-    return spec, CssSpec(container=looked["container"], fields=fields, follow_links=follow)
+    return spec, Extraction(container=looked["container"], fields=fields, follow_links=follow)
 
 
 _SUGGESTIONS = (

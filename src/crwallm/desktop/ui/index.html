@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>모으기</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <h1>모으기</h1>
+  <p id="subtitle">주소를 붙여넣으면 그 페이지에 무엇이 있는지 보여드립니다.</p>
+</header>
+
+<!-- ① 주소 -->
+<section id="step-url" class="card">
+  <label for="url">웹페이지 주소</label>
+  <div class="row">
+    <input id="url" type="text" placeholder="https://" autocomplete="off" spellcheck="false">
+    <button id="look" class="primary">살펴보기</button>
+  </div>
+  <p class="hint">상품 목록, 글 목록처럼 <strong>여러 개가 나열된</strong> 페이지가 가장 잘 됩니다.</p>
+  <p id="url-error" class="error" hidden></p>
+</section>
+
+<!-- ② 고르기 -->
+<section id="step-pick" class="card" hidden>
+  <h2 id="found"></h2>
+  <p class="hint">모으고 싶은 것에 <strong>이름을 붙여주세요.</strong> 비워두면 모으지 않습니다.</p>
+
+  <table id="columns">
+    <thead>
+      <tr><th class="sample-col">이 페이지에 있는 내용</th><th class="name-col">뭐라고 부를까요?</th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <div class="row spread">
+    <label class="depth">
+      <input id="more-pages" type="checkbox">
+      다음 페이지들도 따라가기
+      <span class="hint inline">(느려집니다)</span>
+    </label>
+    <button id="collect" class="primary">모으기</button>
+  </div>
+</section>
+
+<!-- ③ 결과 -->
+<section id="step-result" class="card" hidden>
+  <div class="row spread">
+    <h2 id="result-summary"></h2>
+    <div class="row">
+      <button id="save-csv" class="primary">엑셀로 저장</button>
+      <button id="again">다시 하기</button>
+    </div>
+  </div>
+  <p id="result-hint" class="hint" hidden></p>
+  <div class="table-wrap"><table id="results"><thead></thead><tbody></tbody></table></div>
+  <p id="truncated" class="hint" hidden></p>
+</section>
+
+<!-- 진행 중 -->
+<div id="busy" class="busy" hidden>
+  <div class="busy-card">
+    <div class="spinner" aria-hidden="true"></div>
+    <p id="busy-text">잠시만요…</p>
+    <p id="busy-detail" class="hint"></p>
+    <button id="stop">중지</button>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>

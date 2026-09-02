@@ -1,0 +1,229 @@
+/*
+ * Written for someone who did not choose to be here.
+ *
+ * Large type, few controls, one thing to do per screen. The defaults of a
+ * developer tool - dense tables, small grey text, everything visible at once -
+ * are the opposite of what this needs.
+ *
+ * Light only, and deliberately: a dark theme is a preference, and a person who
+ * has never changed a setting should not be shown one they did not pick.
+ */
+
+:root {
+  --ink: #1a1a1a;
+  --ink-soft: #5a5a5a;
+  --line: #dcdcdc;
+  --paper: #ffffff;
+  --ground: #f4f4f5;
+  --accent: #1d4ed8;
+  --accent-ink: #ffffff;
+  --bad: #b91c1c;
+  --ok: #15803d;
+
+  --radius: 10px;
+  --gap: 16px;
+}
+
+* { box-sizing: border-box; }
+
+/* The browser's own `[hidden] { display: none }` loses to any class that sets
+ * display, and `.busy` sets `display: flex`. Without this the overlay is up
+ * before anything has happened - which is what it did. */
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: "Malgun Gothic", "Segoe UI", system-ui, sans-serif;
+  /* 17px, not 14. The people this is for are not reading a code editor. */
+  font-size: 17px;
+  line-height: 1.6;
+}
+
+body {
+  padding: 28px 32px 48px;
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+header { margin-bottom: 22px; }
+h1 { font-size: 30px; margin: 0 0 4px; letter-spacing: -0.4px; }
+h2 { font-size: 20px; margin: 0 0 10px; }
+p  { margin: 6px 0; }
+
+.card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 22px;
+  margin-bottom: var(--gap);
+}
+
+label { display: block; font-weight: 600; margin-bottom: 8px; }
+
+.row { display: flex; gap: 10px; align-items: center; }
+.row.spread { justify-content: space-between; flex-wrap: wrap; }
+
+input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  padding: 13px 14px;
+  font-size: 17px;
+  font-family: inherit;
+  border: 1.5px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+}
+input[type="text"]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(29, 78, 216, 0.14);
+}
+
+/* Big enough to hit without aiming. */
+button {
+  padding: 13px 22px;
+  font-size: 17px;
+  font-family: inherit;
+  font-weight: 600;
+  border: 1.5px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+}
+/* Not `button:hover` - that selector outranks `.primary` and repainted the
+ * blue button the page background, leaving white text on white. It is
+ * what the cursor sits on after every click, so it was permanent. */
+button:not(.primary):hover:not(:disabled) { background: var(--ground); }
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+button.primary:hover:not(:disabled) { filter: brightness(1.08); }
+button:disabled { opacity: 0.45; cursor: default; }
+
+.hint { color: var(--ink-soft); font-size: 15px; }
+.hint.inline { display: inline; }
+.error { color: var(--bad); font-weight: 600; }
+
+/* --- the picker: samples on the left, a name box on the right ----------- */
+
+#columns { width: 100%; border-collapse: collapse; margin: 6px 0 18px; }
+#columns th {
+  text-align: left;
+  font-size: 14px;
+  color: var(--ink-soft);
+  font-weight: 600;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+}
+#columns td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+#columns tr:last-child td { border-bottom: none; }
+.sample-col { width: 62%; }
+
+.sample {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 520px;
+}
+.sample + .sample { color: var(--ink-soft); font-size: 15px; }
+.sample-kind {
+  display: inline-block;
+  font-size: 13px;
+  color: var(--ink-soft);
+  background: var(--ground);
+  border-radius: 5px;
+  padding: 1px 7px;
+  margin-right: 8px;
+}
+#columns input[type="text"] { width: 100%; padding: 10px 12px; }
+
+.depth { font-weight: 400; margin: 0; display: flex; align-items: center; gap: 8px; }
+.depth input { width: 19px; height: 19px; }
+
+/* --- results ------------------------------------------------------------ */
+
+.table-wrap {
+  overflow: auto;
+  max-height: 46vh;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+#results { width: 100%; border-collapse: collapse; font-size: 15px; }
+#results th, #results td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#results th {
+  position: sticky;
+  top: 0;
+  background: var(--ground);
+  font-size: 14px;
+}
+#results tbody tr:nth-child(even) { background: #fafafa; }
+
+/* --- busy --------------------------------------------------------------- */
+
+.busy {
+  position: fixed;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.busy-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 30px 40px;
+  text-align: center;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.09);
+  min-width: 280px;
+}
+.busy-card p { margin: 4px 0; }
+.busy-card button { margin-top: 14px; }
+
+.spinner {
+  width: 34px;
+  height: 34px;
+  margin: 0 auto 14px;
+  border: 3px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation: none; border-top-color: var(--line); }
+}
+
+/* --- toast -------------------------------------------------------------- */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  background: var(--ink);
+  color: var(--paper);
+  padding: 13px 22px;
+  border-radius: 8px;
+  font-weight: 600;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.2);
+}
+.toast.bad { background: var(--bad); }

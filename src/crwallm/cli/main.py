@@ -162,6 +162,24 @@ def up(
 
 
 @app.command()
+def desktop(
+    debug: Annotated[bool, typer.Option("--debug", help="Open developer tools")] = False,
+    allow_local: Annotated[
+        bool,
+        typer.Option("--allow-local", hidden=True, help="Permit private addresses (testing)"),
+    ] = False,
+) -> None:
+    """Open the desktop window.
+
+    Needs nothing running: no database, no API, no worker, no browser. Paste a
+    page, name the columns you want, save a spreadsheet.
+    """
+    from crwallm.desktop.app import run
+
+    raise typer.Exit(run(debug=debug, allow_local=allow_local))
+
+
+@app.command()
 def worker() -> None:
     """Run the crawl worker.
 
