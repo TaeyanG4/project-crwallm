@@ -259,6 +259,56 @@ def _ensure_web_deps(web: Path, npm: str) -> bool:
     return True
 
 
+def _prepare(settings: object) -> str | None:
+    """Bring up what the stack needs, or say what is missing.
+
+    Lives here rather than in the launcher script because a ``.bat`` is parsed
+    in the system codepage and cannot carry a Korean sentence at all - and
+    because this is the sort of thing that wants testing, which a batch file
+    resists.
+
+    Returns a message to show and stop on, or None to continue.
+    """
+    from pathlib import Path as _Path
+
+    docker = shutil.which("docker")
+    if docker is None:
+        return (
+            "Docker가 없습니다.\n"
+            "        Docker Desktop을 설치하고 켜주세요 - 데이터베이스가 그 위에서 돕니다."
+        )
+
+    probe = subprocess.run(  # noqa: S603 - docker path resolved above
+        [docker, "info"], capture_output=True, check=False
+    )
+    if probe.returncode != 0:
+        return "Docker가 실행 중이 아닙니다.\n        Docker Desktop을 켜고 다시 시도해주세요."
+
+    if not _Path(".env").exists():
+        _say("setup", "설정 파일이 없습니다. `crwallm setup`을 먼저 실행해주세요.")
+        return (
+            "설정이 끝나지 않았습니다.\n"
+            "        crwallm setup  을 실행하면 설정 파일·DB·모델을 준비합니다."
+        )
+
+    _say("db", "starting")
+    started = subprocess.run(  # noqa: S603 - docker path resolved above
+        [docker, "compose", "up", "-d", "db"], capture_output=True, check=False
+    )
+    if started.returncode != 0:
+        detail = started.stderr.decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
+        return "데이터베이스를 시작하지 못했습니다.\n        " + detail[0][:160]
+
+    # Cheap when already current, and the alternative is a first crawl that
+    # fails on a missing column.
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        capture_output=True,
+        check=False,
+    )
+    return None
+
+
 def up(
     host: str = "127.0.0.1",
     port: int = 8000,
@@ -267,11 +317,22 @@ def up(
     with_ui: bool = True,
     with_worker: bool = True,
     open_browser: bool = True,
+    launcher: bool = False,
 ) -> int:
     """Run the API, the worker and the UI until interrupted."""
     from crwallm.config import get_settings
 
     settings = get_settings()
+
+    if launcher:
+        # Double-clicked rather than typed: nothing has been prepared, and the
+        # person reading this did not choose to be at a terminal.
+        problem = _prepare(settings)
+        if problem is not None:
+            typer.echo("")
+            typer.secho(f"  {problem}", fg=typer.colors.RED)
+            typer.echo("")
+            return 1
     host = host or settings.api_host
     port = port or settings.api_port
 

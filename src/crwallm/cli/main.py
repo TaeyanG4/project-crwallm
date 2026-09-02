@@ -129,6 +129,14 @@ def up(
         bool, typer.Option("--worker/--no-worker", help="Also start a crawl worker")
     ] = True,
     open_browser: Annotated[bool, typer.Option("--open/--no-open")] = True,
+    launcher: Annotated[
+        bool,
+        typer.Option(
+            "--launcher",
+            hidden=True,
+            help="Started by a double-click: check and start Docker, migrate, then run",
+        ),
+    ] = False,
 ) -> None:
     """Start the API, a worker and the web UI together.
 
@@ -148,6 +156,7 @@ def up(
             with_ui=ui,
             with_worker=worker_too,
             open_browser=open_browser,
+            launcher=launcher,
         )
     )
 
