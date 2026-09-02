@@ -98,10 +98,10 @@ class TestDetection:
         """Eight classes is brittle even when every one is meaningful - each
         one is another way for the page to stop matching."""
         rows = "".join(
-            f'''<li class="alpha beta gamma delta epsilon zeta">
+            f"""<li class="alpha beta gamma delta epsilon zeta">
                  <h3 class="name">Mechanical keyboard model {i}</h3>
                  <span class="price">{i}9,000 won including delivery</span>
-               </li>'''
+               </li>"""
             for i in range(1, 7)
         )
         html = f"<ul>{rows}</ul>"
