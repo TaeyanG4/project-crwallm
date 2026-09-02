@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Annotated, Any
@@ -565,6 +566,7 @@ async def _inspect(url: str, show_links: bool, allow_local: bool = False) -> Non
             typer.echo(f"canonical    {canonical}")
         typer.echo(f"fingerprint  {fingerprint_of(tree)}")
 
+        _print_declared(tree)
         _print_structure(tree)
 
         if show_links:
@@ -577,6 +579,134 @@ async def _inspect(url: str, show_links: bool, allow_local: bool = False) -> Non
                 typer.echo(f"  ... and {len(found) - 20} more")
     finally:
         await fetcher.aclose()
+
+
+def _print_declared(tree: Any) -> None:
+    """What the page states about itself.
+
+    Printed before the detected structure because it outranks it: when a page
+    declares a Product with a price, a recipe should read that rather than a
+    selector, and it will not move when the site is restyled. Printing the
+    *paths* rather than only the types is what makes a recipe writable - it is
+    the same reason the CSS side prints column indices
+    (docs/06_EXTRACTION_ARCHITECTURE.md).
+    """
+    from crwallm.crawler.extraction.structured import extract_structured
+
+    data = extract_structured(tree)
+
+    if data.meta.is_video_page():
+        typer.echo("")
+        bits = [f"og:type={data.meta.kind}" if data.meta.kind else "", data.meta.video or ""]
+        typer.echo("video page   " + "  ".join(b for b in bits if b))
+
+    if data.jsonld:
+        typer.echo("")
+        typer.echo("declared (JSON-LD):")
+        by_type: dict[str, list[dict[str, Any]]] = {}
+        for node in data.jsonld:
+            raw = node.get("@type")
+            for name in raw if isinstance(raw, list) else [raw]:
+                if isinstance(name, str):
+                    by_type.setdefault(name.rsplit("/", 1)[-1], []).append(node)
+
+        for name, nodes in by_type.items():
+            typer.echo(f" * {name}  x{len(nodes)}")
+            for path, sample in _leaf_paths(nodes[0]):
+                typer.echo(f"     {path:28} {sample}")
+
+    if data.embedded:
+        typer.echo("")
+        typer.echo("declared (embedded JSON):")
+        for script_id, blob in data.embedded.items():
+            typer.echo(f" * {script_id}")
+            for path, size, keys in _array_paths(blob):
+                typer.echo(f"     {path}")
+                typer.echo(f"       {size} items  [{keys}]")
+
+
+def _leaf_paths(node: Any, prefix: str = "", depth: int = 0) -> list[tuple[str, str]]:
+    """Dotted paths to scalar values, with a sample of each.
+
+    Exactly what goes in a recipe's ``selector``, so it can be copied across
+    without the writer having to guess how nesting is spelled.
+    """
+    if depth > 2:
+        return []
+    out: list[tuple[str, str]] = []
+    if not isinstance(node, dict):
+        return out
+    for key, value in node.items():
+        if key in {"@context", "@type"}:
+            continue
+        path = f"{prefix}{key}"
+        if isinstance(value, str | int | float | bool):
+            out.append((path, str(value)[:44]))
+        elif isinstance(value, dict):
+            out.extend(_leaf_paths(value, f"{path}.", depth + 1))
+        elif isinstance(value, list) and value and isinstance(value[0], dict):
+            out.append((f"{path}[]", f"({len(value)} items)"))
+        if len(out) > 14:
+            break
+    return out
+
+
+_CHROME_PATH = re.compile(
+    r"(?:^|[.\[])(?:nav|navigation|menu|footer|header|breadcrumb|sidebar|locale|language)s?"
+    r"(?:[.\[]|$)",
+    re.IGNORECASE,
+)
+"""Path segments that name themselves as page furniture."""
+
+
+def _array_paths(node: Any) -> list[tuple[str, int, str]]:
+    """Where the *interesting* arrays are in a framework state blob.
+
+    A ``__NEXT_DATA__`` document is mostly routing and config. Walking it and
+    printing the first arrays found surfaces the navigation menu, the footer
+    links and the language switcher - measured on bbc.com, all six slots went
+    to those before any content was reached.
+
+    So they are ranked, by the same idea the CSS detector uses - except that
+    width counts for more than length. A nav link is ``{url, title}``; an
+    article is headline, summary, image, timestamp and more. Ranking on length
+    alone put a 45-entry language switcher above a 10-entry list of stories;
+    squaring the width puts the stories back on top, because "how much each
+    item says" is the signal and "how many there are" is only a tiebreak.
+
+    Even so the ranking is only a hint, and on bbc.com it is not enough - its
+    nav entries are as wide as its content. Two things carry the rest. Paths
+    that name themselves chrome (``navigation``, ``footer``, ``menu``) are
+    demoted, which is the site telling us what they are in the same way
+    ``og:type`` does. And the item keys are printed, which settles it without
+    depending on the ranking at all: ``[id, title, isSpecial, inOverlay]`` and
+    ``[headline, summary, image]`` are not mistakable for each other.
+    """
+    found: list[tuple[str, int, float, str]] = []
+
+    def walk(value: Any, prefix: str, depth: int) -> None:
+        if depth > 6 or len(found) > 200:
+            return
+        if not isinstance(value, dict):
+            return
+        for key, child in value.items():
+            path = f"{prefix}{key}" if prefix else key
+            if isinstance(child, list) and len(child) >= 2 and isinstance(child[0], dict):
+                sample = [item for item in child[:5] if isinstance(item, dict)]
+                if not sample:
+                    continue
+                width = sum(len(item) for item in sample) / len(sample)
+                keys = ", ".join(list(sample[0])[:5])
+                score = width * width * len(child)
+                if _CHROME_PATH.search(path):
+                    score /= 8
+                found.append((path, len(child), score, keys))
+            elif isinstance(child, dict):
+                walk(child, f"{path}.", depth + 1)
+
+    walk(node, "", 0)
+    found.sort(key=lambda row: row[2], reverse=True)
+    return [(path, count, keys) for path, count, _, keys in found[:6]]
 
 
 def _print_structure(tree: Any) -> None:

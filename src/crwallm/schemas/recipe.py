@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -54,7 +54,10 @@ class FieldRule(BaseModel):
 
     name: str = Field(min_length=1, max_length=64)
     selector: str = ""
-    """Relative to the container. Empty means the container itself."""
+    """Relative to the container. Empty means the container itself.
+
+    A CSS selector for a ``css`` recipe, a dotted JSON path for the others
+    (``offers.price``, ``author.name``)."""
 
     type: str = "text"
     attr: str | None = None
@@ -176,9 +179,27 @@ class Recipe(BaseModel):
 
     fetch_mode: FetchMode = FetchMode.HTTP
 
+    source: Literal["css", "jsonld", "embedded"] = "css"
+    """Where the records come from.
+
+    ``css`` reads the rendered DOM. ``jsonld`` and ``embedded`` read what the
+    page declared about itself - and when a page declares it, that beats any
+    selector, because it does not move when the site is restyled
+    (docs/06_EXTRACTION_ARCHITECTURE.md).
+
+    The other fields keep their meaning across all three: ``container`` finds
+    the repeating unit and ``fields`` find values inside it. Only the language
+    changes - a CSS selector, a schema.org ``@type``, or a dotted JSON path -
+    which is what lets scoring and activation stay one code path.
+    """
+
     container: str | None = None
     """One record per match. Absent means the page yields a single record -
-    the detail-page shape."""
+    the detail-page shape.
+
+    For ``jsonld`` this is the ``@type`` to collect ("Product",
+    "VideoObject"); for ``embedded``, a dotted path whose first segment is the
+    script id (``__NEXT_DATA__.props.pageProps.items``)."""
 
     fields: tuple[FieldRule, ...] = ()
     pagination: PaginationRule | None = None

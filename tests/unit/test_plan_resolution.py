@@ -151,3 +151,67 @@ class TestParity:
         )
         plan = resolve_plan(spec(recipe="laptops"), recipes_dir=tmp_path)
         assert plan.extraction.container == "li.item"
+
+
+class TestDeclaredDataRecipes:
+    """A recipe that reads JSON-LD instead of the DOM, end to end.
+
+    The wiring is where this breaks: the spec loads, the extractor is built,
+    and if `structured` is dropped anywhere between the two the crawl runs
+    perfectly and extracts nothing - which is exactly the failure that made
+    the worker useless before.
+    """
+
+    def jsonld_recipe(self, tmp_path: Path, **overrides: object) -> None:
+        base: dict[str, object] = {
+            "name": "products",
+            "source": "jsonld",
+            "source_url": "https://shop.test/p/1",
+            "allowed_domains": ("shop.test",),
+            "container": "Product",
+            "fields": (
+                FieldRule(name="title", selector="name"),
+                FieldRule(name="price", selector="offers.price"),
+            ),
+        }
+        base.update(overrides)
+        save_recipe_file(Recipe(**base), tmp_path)  # type: ignore[arg-type]
+
+    def test_the_source_survives_a_save_and_load(self, tmp_path: Path) -> None:
+        self.jsonld_recipe(tmp_path)
+        plan = resolve_plan(spec(recipe="products"), recipes_dir=tmp_path)
+        assert plan.structured is not None
+        assert plan.structured.kind == "jsonld"
+        assert plan.structured.container == "Product"
+
+    def test_field_paths_come_through(self, tmp_path: Path) -> None:
+        self.jsonld_recipe(tmp_path)
+        plan = resolve_plan(spec(recipe="products"), recipes_dir=tmp_path)
+        assert plan.structured is not None
+        assert plan.structured.fields == (("title", "name"), ("price", "offers.price"))
+
+    def test_the_built_extractor_reads_declared_data(self, tmp_path: Path) -> None:
+        from crwallm.crawler.extraction.structured import StructuredExtractor
+        from crwallm.services.crawl import build_extractor
+
+        self.jsonld_recipe(tmp_path)
+        plan = resolve_plan(spec(recipe="products"), recipes_dir=tmp_path)
+        assert isinstance(build_extractor(plan), StructuredExtractor)
+
+    def test_a_css_recipe_still_builds_a_css_extractor(self, store: Path) -> None:
+        from crwallm.crawler.extraction.css import CssExtractor
+        from crwallm.services.crawl import build_extractor
+
+        plan = resolve_plan(spec(recipe="laptops"), recipes_dir=store)
+        assert plan.structured is None
+        assert isinstance(build_extractor(plan), CssExtractor)
+
+    def test_links_are_still_followed_from_the_dom(self, tmp_path: Path) -> None:
+        """A JSON-LD block does not list the site's navigation. A recipe that
+        changed source must not quietly become a one-page crawl."""
+        from crwallm.services.crawl import build_extractor
+
+        self.jsonld_recipe(tmp_path)
+        plan = resolve_plan(spec(recipe="products", follow_links=True), recipes_dir=tmp_path)
+        extractor = build_extractor(plan)
+        assert extractor.css.follow_links is True  # type: ignore[union-attr]

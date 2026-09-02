@@ -26,13 +26,20 @@ from typing import Any
 
 from selectolax.lexbor import LexborHTMLParser
 
+from crwallm.crawler.contracts import ExtractionResult, FetchResponse
+from crwallm.crawler.extraction.css import CssSpec, extract_canonical, extract_links, parse
+
 __all__ = [
     "EMBEDDED_SCRIPT_IDS",
     "PageMetadata",
     "StructuredData",
+    "StructuredExtractor",
+    "StructuredSpec",
     "extract_structured",
     "find_types",
     "iter_jsonld_nodes",
+    "json_path",
+    "records_from",
 ]
 
 MAX_JSON_BYTES = 4_000_000
@@ -320,3 +327,141 @@ def extract_structured(tree: LexborHTMLParser) -> StructuredData:
         embedded=embedded,
         meta=_read_metadata(tree),
     )
+
+
+# ------------------------------------------------------- reading it as rows
+
+_INDEX = re.compile(r"^\d+$")
+
+
+def json_path(node: Any, path: str) -> Any:
+    """Follow a dotted path into parsed JSON.
+
+    ``offers.price``, ``author.name``, ``props.pageProps.items.0.title``. A
+    numeric segment indexes a list; everything else is a key.
+
+    JSON-LD needs two unwrappings that a plain path walk would get wrong. A
+    value can be ``{"@value": x}`` - the expanded form, which means x - and a
+    single-valued property is often written as a one-element list. Both are
+    the publisher's choice about serialisation, not about the data, so a
+    recipe should not have to know which one a given site picked.
+    """
+    current = node
+    for segment in path.split("."):
+        if current is None:
+            return None
+
+        if isinstance(current, dict) and "@value" in current and segment not in current:
+            current = current["@value"]
+
+        # A single value written as a list: take the first, which is what the
+        # publisher meant by it.
+        if isinstance(current, list) and not _INDEX.match(segment):
+            if len(current) != 1:
+                return None
+            current = current[0]
+
+        if isinstance(current, list):
+            index = int(segment)
+            current = current[index] if -len(current) <= index < len(current) else None
+        elif isinstance(current, dict):
+            current = current.get(segment)
+        else:
+            return None
+
+    if isinstance(current, dict) and "@value" in current:
+        current = current["@value"]
+    return current
+
+
+@dataclass(frozen=True, slots=True)
+class StructuredSpec:
+    """How to read records out of declared data.
+
+    Same two questions as a CSS spec, asked of JSON instead of a DOM:
+    ``container`` finds the repeating unit and ``fields`` find values inside
+    it. Keeping the shape identical is what lets recipes, scoring and the
+    activation gate stay one code path rather than two.
+    """
+
+    kind: str = "jsonld"
+    """``jsonld`` or ``embedded``."""
+
+    container: str | None = None
+    """For ``jsonld``: the ``@type`` to collect - "Product", "VideoObject".
+    For ``embedded``: a dotted path to the array, and the script id is the
+    first segment (``__NEXT_DATA__.props.pageProps.items``)."""
+
+    fields: tuple[tuple[str, str], ...] = ()
+    """``(name, path)`` pairs, each path relative to one record."""
+
+
+def records_from(data: StructuredData, spec: StructuredSpec) -> tuple[dict[str, Any], ...]:
+    """Apply a spec to what a page declared.
+
+    Records where every field came back empty are dropped, the same rule the
+    CSS extractor uses: a row of nulls is a selector that missed, and counting
+    it would make the fill rate - which is what activation is scored on - a
+    lie (docs/07_RECIPE_ARCHITECTURE.md).
+    """
+    if not spec.fields:
+        return ()
+
+    items: list[Any]
+    if spec.kind == "jsonld":
+        items = list(find_types(data, spec.container)) if spec.container else list(data.jsonld)
+    elif spec.kind == "embedded":
+        if not spec.container:
+            return ()
+        script_id, _, rest = spec.container.partition(".")
+        found = (
+            json_path(data.embedded.get(script_id), rest) if rest else data.embedded.get(script_id)
+        )
+        items = found if isinstance(found, list) else ([found] if found is not None else [])
+    else:
+        return ()
+
+    out: list[dict[str, Any]] = []
+    for item in items:
+        record = {name: json_path(item, path) for name, path in spec.fields}
+        if any(v is not None and v != "" and v != [] for v in record.values()):
+            out.append(record)
+    return tuple(out)
+
+
+@dataclass(slots=True)
+class StructuredExtractor:
+    """``Extractor`` for pages that declare their own data.
+
+    Links, canonical and text still come from the DOM. Only the *records*
+    change source: a crawl has to keep walking whatever the rows were read
+    from, and a JSON-LD block does not list the site's navigation.
+
+    An empty result is not an error here. A listing page whose detail pages
+    carry the JSON-LD will legitimately produce nothing, and the operator sees
+    that as "0 records over 200 pages" with the pages tab to explain it.
+    """
+
+    spec: StructuredSpec
+    css: CssSpec = field(default_factory=lambda: CssSpec())
+    name: str = "structured"
+
+    def supports(self, response: FetchResponse) -> bool:
+        content_type = response.content_type or ""
+        return content_type.startswith("text/html") or content_type.endswith("+xml")
+
+    def extract(self, response: FetchResponse) -> ExtractionResult:
+        tree, _ = parse(response)
+        base_url = response.final_url or response.url.url
+        data = extract_structured(tree)
+
+        return ExtractionResult(
+            extractor=self.name,
+            records=records_from(data, self.spec),
+            links=extract_links(tree, base_url, self.css.link_selector)
+            if self.css.follow_links
+            else (),
+            canonical_url=data.meta.canonical or extract_canonical(tree),
+            text=None,
+            content_hash=None,
+        )

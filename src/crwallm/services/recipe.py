@@ -30,6 +30,7 @@ import yaml
 
 from crwallm.crawler.contracts import FetchResponse
 from crwallm.crawler.extraction.css import CssExtractor, CssSpec, FieldSpec
+from crwallm.crawler.extraction.structured import StructuredSpec
 from crwallm.schemas.filters import apply_filters
 from crwallm.schemas.recipe import Recipe, RecipeQuality, RecipeStatus
 
@@ -146,6 +147,17 @@ def to_css_spec(recipe: Recipe, *, follow_links: bool = False) -> CssSpec:
             for f in recipe.fields
         ),
         follow_links=follow_links,
+    )
+
+
+def to_structured_spec(recipe: Recipe) -> StructuredSpec | None:
+    """The declared-data half of a recipe, or None for a CSS one."""
+    if recipe.source == "css":
+        return None
+    return StructuredSpec(
+        kind=recipe.source,
+        container=recipe.container,
+        fields=tuple((f.name, f.selector) for f in recipe.fields),
     )
 
 

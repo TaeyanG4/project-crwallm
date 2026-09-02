@@ -20,6 +20,7 @@ from urllib.parse import urlsplit
 
 from crwallm.crawler.contracts import FetchFailure, FetchRequest, FetchResponse
 from crwallm.crawler.extraction.css import parse
+from crwallm.crawler.extraction.structured import extract_structured
 from crwallm.llm.agent import AgentDeps
 from crwallm.llm.gateway import ModelGateway
 from crwallm.policy.domains import registrable_domain
@@ -111,6 +112,19 @@ def build_agent_deps(
         response = await _fetch(url, allow_local=allow_local)
         tree, _ = parse(response)
         containers = detect_containers(tree)
+        declared = extract_structured(tree)
+
+        # What the page states about itself outranks anything read off its
+        # layout, so the model is told about it first. A recipe written
+        # against JSON-LD does not break when the site is restyled.
+        declared_summary: dict[str, Any] = {}
+        if declared.jsonld:
+            declared_summary["jsonld_types"] = [t.rsplit("/", 1)[-1] for t in declared.types()]
+            declared_summary["jsonld_paths"] = _sample_paths(declared.jsonld[0])
+        if declared.embedded:
+            declared_summary["embedded_scripts"] = list(declared.embedded)
+        if declared.meta.is_video_page():
+            declared_summary["is_video_page"] = True
 
         if not containers:
             return {
@@ -119,7 +133,15 @@ def build_agent_deps(
                 "container": None,
                 "records": 0,
                 "columns": [],
-                "note": "no repeated structure - a detail page, or rendered by JavaScript",
+                "declared": declared_summary,
+                "note": (
+                    "no repeated structure - a detail page, or rendered by JavaScript. "
+                    + (
+                        "It does declare JSON-LD, so make_recipe can read that instead."
+                        if declared.jsonld
+                        else ""
+                    )
+                ),
             }
 
         best = containers[0]
@@ -128,6 +150,7 @@ def build_agent_deps(
             "status": response.status,
             "container": best.selector,
             "records": best.count,
+            "declared": declared_summary,
             "columns": [
                 {
                     "index": column.index,
@@ -218,3 +241,28 @@ def build_agent_deps(
         crawl=crawl,
         list_recipes=list_recipes,
     )
+
+
+def _sample_paths(node: dict[str, Any], limit: int = 10) -> list[str]:
+    """Dotted paths into one JSON-LD entity.
+
+    The model writes a recipe's field paths from this, so it needs the paths
+    themselves rather than a description of them - the same reason the CSS
+    side reports column indices instead of prose.
+    """
+    out: list[str] = []
+
+    def walk(value: Any, prefix: str, depth: int) -> None:
+        if depth > 2 or len(out) >= limit or not isinstance(value, dict):
+            return
+        for key, child in value.items():
+            if key in {"@context", "@type"} or len(out) >= limit:
+                continue
+            path = f"{prefix}{key}"
+            if isinstance(child, str | int | float | bool):
+                out.append(path)
+            elif isinstance(child, dict):
+                walk(child, f"{path}.", depth + 1)
+
+    walk(node, "", 0)
+    return out

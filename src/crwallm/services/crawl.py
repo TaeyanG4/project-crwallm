@@ -13,7 +13,9 @@ from collections.abc import AsyncGenerator, AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from crwallm.crawler.contracts import Extractor
 from crwallm.crawler.extraction.css import CssExtractor, CssSpec, FieldSpec
+from crwallm.crawler.extraction.structured import StructuredExtractor, StructuredSpec
 from crwallm.crawler.fetching.http import SafeHttpFetcher
 from crwallm.crawler.frontier.memory import MemoryFrontier
 from crwallm.crawler.traversal import CrawlDeps, run_crawl
@@ -21,7 +23,12 @@ from crwallm.policy.gate import Scope, UrlGate
 from crwallm.policy.ssrf import CachingResolver, SsrfGuard, SystemResolver
 from crwallm.schemas.events import CrawlEvent
 from crwallm.schemas.spec import CrawlSpec
-from crwallm.services.recipe import RecipeFileError, RecipeStore, to_css_spec
+from crwallm.services.recipe import (
+    RecipeFileError,
+    RecipeStore,
+    to_css_spec,
+    to_structured_spec,
+)
 from crwallm.storage.blob import BlobStore, NullBlobStore
 
 __all__ = [
@@ -47,6 +54,15 @@ class CrawlPlan:
 
     spec: CrawlSpec
     extraction: CssSpec = field(default_factory=CssSpec)
+
+    structured: StructuredSpec | None = None
+    """Set when the recipe reads declared data instead of the DOM.
+
+    Alongside ``extraction`` rather than replacing it: link discovery is
+    always DOM-based, whatever the records were read from. A JSON-LD block
+    does not list the site's navigation, and a crawl that stopped following
+    links because its recipe changed source would silently become a one-page
+    crawl."""
 
 
 class RecipeNotApplicableError(ValueError):
@@ -112,19 +128,23 @@ def resolve_plan(spec: CrawlSpec, *, recipes_dir: Path | None = None) -> CrawlPl
     if scope != spec.allowed_domains:
         spec = spec.model_copy(update={"allowed_domains": scope})
 
-    return CrawlPlan(spec=spec, extraction=to_css_spec(recipe, follow_links=spec.follow_links))
-
-
-def build_extractor(plan: CrawlPlan) -> CssExtractor:
-    spec = plan.extraction
-    return CssExtractor(
-        CssSpec(
-            container=spec.container,
-            fields=spec.fields,
-            link_selector=spec.link_selector,
-            follow_links=plan.spec.follow_links,
-        )
+    return CrawlPlan(
+        spec=spec,
+        extraction=to_css_spec(recipe, follow_links=spec.follow_links),
+        structured=to_structured_spec(recipe),
     )
+
+
+def build_extractor(plan: CrawlPlan) -> Extractor:
+    css = CssSpec(
+        container=plan.extraction.container,
+        fields=plan.extraction.fields,
+        link_selector=plan.extraction.link_selector,
+        follow_links=plan.spec.follow_links,
+    )
+    if plan.structured is not None:
+        return StructuredExtractor(spec=plan.structured, css=css)
+    return CssExtractor(css)
 
 
 def parse_field(raw: str) -> FieldSpec:

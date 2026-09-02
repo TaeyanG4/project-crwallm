@@ -19,9 +19,12 @@ from selectolax.lexbor import LexborHTMLParser
 from crwallm.crawler.extraction.structured import (
     MAX_JSON_BYTES,
     PageMetadata,
+    StructuredSpec,
     extract_structured,
     find_types,
     iter_jsonld_nodes,
+    json_path,
+    records_from,
 )
 
 
@@ -262,3 +265,149 @@ class TestSeparation:
 def test_the_types_worth_naming_all_match(wanted: str) -> None:
     data = extract_structured(page(ld({"@type": wanted, "name": "x"})))
     assert find_types(data, wanted)
+
+
+class TestJsonPath:
+    """The two unwrappings that a plain path walk gets wrong.
+
+    Both are the publisher's choice about serialisation rather than about the
+    data, and a recipe should not have to know which one a given site picked.
+    """
+
+    def test_a_plain_path(self) -> None:
+        assert json_path({"offers": {"price": 1290}}, "offers.price") == 1290
+
+    def test_a_numeric_segment_indexes_a_list(self) -> None:
+        assert json_path({"items": [{"n": "a"}, {"n": "b"}]}, "items.1.n") == "b"
+
+    def test_a_negative_index_is_refused_rather_than_wrapping(self) -> None:
+        """Silently returning the last element for "items.-1" would be a
+        surprise; a recipe that meant it can say so another way."""
+        assert json_path({"items": [1, 2, 3]}, "items.5") is None
+
+    def test_an_expanded_value_is_unwrapped(self) -> None:
+        """JSON-LD's expanded form: ``{"@value": x}`` means x."""
+        assert json_path({"name": {"@value": "Keyboard"}}, "name") == "Keyboard"
+
+    def test_a_single_valued_list_is_unwrapped(self) -> None:
+        """Publishers write one-element arrays for single values constantly."""
+        assert json_path({"author": [{"name": "Kim"}]}, "author.name") == "Kim"
+
+    def test_a_multi_valued_list_is_not_guessed_at(self) -> None:
+        """Two authors and a path that names one field: picking the first
+        would be inventing an answer."""
+        assert json_path({"author": [{"name": "Kim"}, {"name": "Lee"}]}, "author.name") is None
+
+    def test_a_missing_key_is_none_not_an_error(self) -> None:
+        assert json_path({"a": 1}, "b.c.d") is None
+
+    def test_walking_into_a_scalar_stops(self) -> None:
+        assert json_path({"a": 5}, "a.b") is None
+
+
+class TestRecordsFrom:
+    def test_jsonld_products_become_rows(self) -> None:
+        tree = page(
+            ld(
+                [
+                    {"@type": "Product", "name": "Keyboard", "offers": {"price": 129000}},
+                    {"@type": "Product", "name": "Mouse", "offers": {"price": 39000}},
+                    {"@type": "Organization", "name": "Shop"},
+                ]
+            )
+        )
+        rows = records_from(
+            extract_structured(tree),
+            StructuredSpec(
+                kind="jsonld",
+                container="Product",
+                fields=(("title", "name"), ("price", "offers.price")),
+            ),
+        )
+        assert rows == (
+            {"title": "Keyboard", "price": 129000},
+            {"title": "Mouse", "price": 39000},
+        )
+
+    def test_the_container_type_filters(self) -> None:
+        """The Organization above must not become a product row."""
+        tree = page(ld([{"@type": "Product", "name": "K"}, {"@type": "Organization", "name": "S"}]))
+        rows = records_from(
+            extract_structured(tree),
+            StructuredSpec(kind="jsonld", container="Product", fields=(("title", "name"),)),
+        )
+        assert rows == ({"title": "K"},)
+
+    def test_embedded_arrays_become_rows(self) -> None:
+        """The values here are clean - this is the source the page rendered
+        from, so prices are numbers rather than "129,000원"."""
+        blob = json.dumps(
+            {"props": {"pageProps": {"items": [{"t": "A", "p": 1}, {"t": "B", "p": 2}]}}}
+        )
+        tree = page(body=f'<script id="__NEXT_DATA__">{blob}</script>')
+        rows = records_from(
+            extract_structured(tree),
+            StructuredSpec(
+                kind="embedded",
+                container="__NEXT_DATA__.props.pageProps.items",
+                fields=(("title", "t"), ("price", "p")),
+            ),
+        )
+        assert rows == ({"title": "A", "price": 1}, {"title": "B", "price": 2})
+
+    def test_rows_where_nothing_matched_are_dropped(self) -> None:
+        """A row of nulls is a path that missed. Counting it would make the
+        fill rate - which activation is scored on - a lie."""
+        tree = page(ld([{"@type": "Product", "name": "K"}, {"@type": "Product", "sku": "x"}]))
+        rows = records_from(
+            extract_structured(tree),
+            StructuredSpec(kind="jsonld", container="Product", fields=(("title", "name"),)),
+        )
+        assert rows == ({"title": "K"},)
+
+    def test_a_spec_without_fields_yields_nothing(self) -> None:
+        tree = page(ld({"@type": "Product", "name": "K"}))
+        assert records_from(extract_structured(tree), StructuredSpec(kind="jsonld")) == ()
+
+    def test_an_unknown_kind_yields_nothing_rather_than_raising(self) -> None:
+        """Recipes are YAML written by people and models; an unknown source
+        must not take the crawl down."""
+        tree = page(ld({"@type": "Product", "name": "K"}))
+        rows = records_from(
+            extract_structured(tree),
+            StructuredSpec(kind="microdata", container="Product", fields=(("t", "name"),)),
+        )
+        assert rows == ()
+
+    def test_a_missing_embedded_script_yields_nothing(self) -> None:
+        tree = page(body="<p>no blob</p>")
+        rows = records_from(
+            extract_structured(tree),
+            StructuredSpec(kind="embedded", container="__NEXT_DATA__.items", fields=(("t", "t"),)),
+        )
+        assert rows == ()
+
+    def test_video_objects_read_as_rows(self) -> None:
+        """The requirement stated at the outset: collect only the videos, and
+        the fields that decide whether one is wanted."""
+        tree = page(
+            ld(
+                {
+                    "@type": "VideoObject",
+                    "name": "Never Gonna Give You Up",
+                    "duration": "PT3M33S",
+                    "contentUrl": "https://cdn.test/v.mp4",
+                    "uploadDate": "2009-10-25",
+                }
+            )
+        )
+        rows = records_from(
+            extract_structured(tree),
+            StructuredSpec(
+                kind="jsonld",
+                container="VideoObject",
+                fields=(("title", "name"), ("length", "duration"), ("url", "contentUrl")),
+            ),
+        )
+        assert rows[0]["title"] == "Never Gonna Give You Up"
+        assert rows[0]["url"] == "https://cdn.test/v.mp4"

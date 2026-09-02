@@ -371,14 +371,35 @@ def _summarise(action: str, result: dict[str, Any], ok: bool) -> str:
 
     match action:
         case "inspect":
+            declared = result.get("declared") or {}
+            # Declared data first: it outranks anything read off the layout,
+            # and a recipe written against it survives a restyle.
+            parts = []
+            if declared.get("jsonld_types"):
+                parts.append(
+                    f"declares JSON-LD {declared['jsonld_types']} "
+                    f"with paths {declared.get('jsonld_paths', [])}"
+                )
+            if declared.get("embedded_scripts"):
+                parts.append(f"has embedded JSON in {declared['embedded_scripts']}")
+            if declared.get("is_video_page"):
+                parts.append("is a video page")
+
             columns = result.get("columns") or []
             if not result.get("container"):
-                return "no repeated structure - this looks like a detail page"
-            return (
-                f"{result.get('records', 0)} repeating items, "
-                f"container {result.get('container')}, "
-                f"columns: {', '.join(str(c) for c in columns[:8]) or 'none'}"
-            )
+                parts.append("no repeated structure - this looks like a detail page")
+            else:
+                names = [
+                    f"{c.get('selector')} ({c.get('kind')})"
+                    for c in columns[:8]
+                    if isinstance(c, dict)
+                ]
+                parts.append(
+                    f"{result.get('records', 0)} repeating items, "
+                    f"container {result.get('container')}, "
+                    f"columns: {', '.join(names) or 'none'}"
+                )
+            return "; ".join(parts)
         case "make_recipe":
             if not result.get("ok"):
                 return str(result.get("reason", "could not build a recipe"))
