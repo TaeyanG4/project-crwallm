@@ -120,9 +120,28 @@ class TestTransforms:
 
     @pytest.mark.parametrize(
         ("raw", "expected"),
-        [("1:23:45", 5025), ("12:34", 754), ("0:07", 7), ("nonsense", None)],
+        [
+            # Clock notation, off a rendered listing.
+            ("1:23:45", 5025),
+            ("12:34", 754),
+            ("0:07", 7),
+            # ISO 8601, which is what schema.org states. Added when the
+            # declared-data extractors arrived: every VideoObject gives its
+            # length this way and nothing could turn it into a number, so
+            # "only videos under thirty minutes" had no field to compare.
+            ("PT3M34S", 214),
+            ("PT1H2M3S", 3723),
+            ("PT45S", 45),
+            ("P1DT2H", 93600),
+            ("PT3M34.5S", 214),
+            # Neither, or a duration with no fixed length in seconds.
+            ("nonsense", None),
+            ("PT", None),
+            ("P1Y", None),
+        ],
     )
     def test_duration_to_seconds(self, raw: str, expected: object) -> None:
+        """A recipe should not have to know which notation a site chose."""
         assert apply_chain(raw, ["duration_to_seconds"]) == expected
 
     @pytest.mark.parametrize(

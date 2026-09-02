@@ -31,6 +31,7 @@ from crwallm.crawler.extraction.css import CssSpec, extract_canonical, extract_l
 
 __all__ = [
     "EMBEDDED_SCRIPT_IDS",
+    "FieldPath",
     "PageMetadata",
     "StructuredData",
     "StructuredExtractor",
@@ -391,6 +392,21 @@ def json_path(node: Any, path: str) -> Any:
 
 
 @dataclass(frozen=True, slots=True)
+class FieldPath:
+    """One field, read from declared data.
+
+    Carries its transforms. They were dropped when a recipe was converted to
+    this shape, so ``duration_to_seconds`` on a JSON-LD field did nothing and
+    a filter comparing it to a number silently matched nothing - the recipe
+    looked right and produced an empty file.
+    """
+
+    name: str
+    path: str
+    transform: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class StructuredSpec:
     """How to read records out of declared data.
 
@@ -408,8 +424,8 @@ class StructuredSpec:
     For ``embedded``: a dotted path to the array, and the script id is the
     first segment (``__NEXT_DATA__.props.pageProps.items``)."""
 
-    fields: tuple[tuple[str, str], ...] = ()
-    """``(name, path)`` pairs, each path relative to one record."""
+    fields: tuple[FieldPath, ...] = ()
+    """Each path relative to one record."""
 
 
 def records_from(data: StructuredData, spec: StructuredSpec) -> tuple[dict[str, Any], ...]:
@@ -445,10 +461,19 @@ def records_from(data: StructuredData, spec: StructuredSpec) -> tuple[dict[str, 
 
     out: list[dict[str, Any]] = []
     for item in items:
-        record = {name: json_path(item, path) for name, path in spec.fields}
+        record = {field.name: _read(item, field) for field in spec.fields}
         if any(v is not None and v != "" and v != [] for v in record.values()):
             out.append(record)
     return tuple(out)
+
+
+def _read(item: Any, field: FieldPath) -> Any:
+    value = json_path(item, field.path)
+    if not field.transform:
+        return value
+    from crwallm.crawler.extraction.transforms import apply_chain
+
+    return apply_chain(value, list(field.transform))
 
 
 @dataclass(slots=True)

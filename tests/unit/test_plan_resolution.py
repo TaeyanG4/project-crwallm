@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from crwallm.crawler.extraction.structured import FieldPath
 from crwallm.schemas.filters import RecordFilter
 from crwallm.schemas.recipe import FieldRule, Recipe, RecipeQuality, RecipeStatus
 from crwallm.schemas.spec import CrawlSpec
@@ -189,7 +190,10 @@ class TestDeclaredDataRecipes:
         self.jsonld_recipe(tmp_path)
         plan = resolve_plan(spec(recipe="products"), recipes_dir=tmp_path)
         assert plan.structured is not None
-        assert plan.structured.fields == (("title", "name"), ("price", "offers.price"))
+        assert plan.structured.fields == (
+            FieldPath("title", "name"),
+            FieldPath("price", "offers.price"),
+        )
 
     def test_the_built_extractor_reads_declared_data(self, tmp_path: Path) -> None:
         from crwallm.crawler.extraction.structured import StructuredExtractor
@@ -281,7 +285,7 @@ class TestKnownSchemaRecipes:
             fields=(FieldRule(name="heading", selector="title"),),
         )
         plan = resolve_plan(spec(recipe="doc"), recipes_dir=tmp_path)
-        assert build_extractor(plan).fields == (("heading", "title"),)  # type: ignore[union-attr]
+        assert build_extractor(plan).fields == (FieldPath("heading", "title"),)  # type: ignore[union-attr]
 
     def test_a_field_without_a_selector_renames_to_itself(self, tmp_path: Path) -> None:
         """``- name: title`` on a known-schema source means "keep title"."""
@@ -289,7 +293,7 @@ class TestKnownSchemaRecipes:
 
         self.save(tmp_path, "feed", fields=(FieldRule(name="title"),))
         assert build_extractor(resolve_plan(spec(recipe="doc"), recipes_dir=tmp_path)).fields == (
-            ("title", "title"),
+            FieldPath("title", "title"),
         )  # type: ignore[union-attr]
 
     def test_following_is_still_configured_from_the_spec(self, tmp_path: Path) -> None:

@@ -11,16 +11,16 @@ fields:
   selector: name
 - name: channel
   selector: author.name
-- name: duration
+- name: seconds
   selector: duration
-- name: uploaded
-  selector: uploadDate
+  transform: [duration_to_seconds]
 - name: url
   selector: url
-- name: thumbnail
-  selector: thumbnailUrl
-- name: genre
-  selector: genre
+filters:
+- field: seconds
+  op: between
+  value: [60, 1800]
 notes: |
-  microdata rather than JSON-LD: the same page carries both, and only the
-  microdata has duration and channel. Paths from `crwallm inspect`.
+  microdata rather than JSON-LD: the same page carries both and only the
+  microdata has duration and channel. `duration_to_seconds` turns schema.org's
+  PT3M34S into a number so the filter has something to compare.

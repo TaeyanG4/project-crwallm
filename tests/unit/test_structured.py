@@ -18,6 +18,7 @@ from selectolax.lexbor import LexborHTMLParser
 
 from crwallm.crawler.extraction.structured import (
     MAX_JSON_BYTES,
+    FieldPath,
     PageMetadata,
     StructuredSpec,
     extract_structured,
@@ -321,7 +322,7 @@ class TestRecordsFrom:
             StructuredSpec(
                 kind="jsonld",
                 container="Product",
-                fields=(("title", "name"), ("price", "offers.price")),
+                fields=(FieldPath("title", "name"), FieldPath("price", "offers.price")),
             ),
         )
         assert rows == (
@@ -334,7 +335,9 @@ class TestRecordsFrom:
         tree = page(ld([{"@type": "Product", "name": "K"}, {"@type": "Organization", "name": "S"}]))
         rows = records_from(
             extract_structured(tree),
-            StructuredSpec(kind="jsonld", container="Product", fields=(("title", "name"),)),
+            StructuredSpec(
+                kind="jsonld", container="Product", fields=(FieldPath("title", "name"),)
+            ),
         )
         assert rows == ({"title": "K"},)
 
@@ -350,7 +353,7 @@ class TestRecordsFrom:
             StructuredSpec(
                 kind="embedded",
                 container="__NEXT_DATA__.props.pageProps.items",
-                fields=(("title", "t"), ("price", "p")),
+                fields=(FieldPath("title", "t"), FieldPath("price", "p")),
             ),
         )
         assert rows == ({"title": "A", "price": 1}, {"title": "B", "price": 2})
@@ -361,7 +364,9 @@ class TestRecordsFrom:
         tree = page(ld([{"@type": "Product", "name": "K"}, {"@type": "Product", "sku": "x"}]))
         rows = records_from(
             extract_structured(tree),
-            StructuredSpec(kind="jsonld", container="Product", fields=(("title", "name"),)),
+            StructuredSpec(
+                kind="jsonld", container="Product", fields=(FieldPath("title", "name"),)
+            ),
         )
         assert rows == ({"title": "K"},)
 
@@ -375,7 +380,7 @@ class TestRecordsFrom:
         tree = page(ld({"@type": "Product", "name": "K"}))
         rows = records_from(
             extract_structured(tree),
-            StructuredSpec(kind="microdata", container="Product", fields=(("t", "name"),)),
+            StructuredSpec(kind="microdata", container="Product", fields=(FieldPath("t", "name"),)),
         )
         assert rows == ()
 
@@ -383,7 +388,9 @@ class TestRecordsFrom:
         tree = page(body="<p>no blob</p>")
         rows = records_from(
             extract_structured(tree),
-            StructuredSpec(kind="embedded", container="__NEXT_DATA__.items", fields=(("t", "t"),)),
+            StructuredSpec(
+                kind="embedded", container="__NEXT_DATA__.items", fields=(FieldPath("t", "t"),)
+            ),
         )
         assert rows == ()
 
@@ -406,7 +413,11 @@ class TestRecordsFrom:
             StructuredSpec(
                 kind="jsonld",
                 container="VideoObject",
-                fields=(("title", "name"), ("length", "duration"), ("url", "contentUrl")),
+                fields=(
+                    FieldPath("title", "name"),
+                    FieldPath("length", "duration"),
+                    FieldPath("url", "contentUrl"),
+                ),
             ),
         )
         assert rows[0]["title"] == "Never Gonna Give You Up"
@@ -486,7 +497,11 @@ class TestMicrodata:
             StructuredSpec(
                 kind="microdata",
                 container="VideoObject",
-                fields=(("title", "name"), ("channel", "author.name"), ("length", "duration")),
+                fields=(
+                    FieldPath("title", "name"),
+                    FieldPath("channel", "author.name"),
+                    FieldPath("length", "duration"),
+                ),
             ),
         )
         assert rows == (
@@ -497,7 +512,9 @@ class TestMicrodata:
         """``itemtype`` is a URL; a recipe says "VideoObject"."""
         rows = records_from(
             self.data(),
-            StructuredSpec(kind="microdata", container="videoobject", fields=(("t", "name"),)),
+            StructuredSpec(
+                kind="microdata", container="videoobject", fields=(FieldPath("t", "name"),)
+            ),
         )
         assert rows
 
@@ -517,3 +534,62 @@ class TestMicrodata:
         data = extract_structured(tree)
         assert data.jsonld[0]["name"] == "From JSON-LD"
         assert data.microdata[0]["name"] == "Never Gonna Give You Up"
+
+
+class TestTransformsOnDeclaredData:
+    """Transforms have to reach every source, not just CSS.
+
+    They did not. Converting a recipe to a structured spec dropped
+    ``transform`` entirely, so ``duration_to_seconds`` on a JSON-LD field did
+    nothing and a filter comparing it to a number matched nothing at all - the
+    recipe looked right and produced an empty file. Found by writing the
+    usage docs and running the example in them.
+    """
+
+    def test_a_transform_runs_on_a_jsonld_field(self) -> None:
+        tree = page(ld({"@type": "VideoObject", "name": "x", "duration": "PT3M34S"}))
+        rows = records_from(
+            extract_structured(tree),
+            StructuredSpec(
+                kind="jsonld",
+                container="VideoObject",
+                fields=(FieldPath("seconds", "duration", ("duration_to_seconds",)),),
+            ),
+        )
+        assert rows == ({"seconds": 214},)
+
+    def test_a_field_without_transforms_is_untouched(self) -> None:
+        tree = page(ld({"@type": "Product", "name": "  Keyboard  "}))
+        rows = records_from(
+            extract_structured(tree),
+            StructuredSpec(kind="jsonld", container="Product", fields=(FieldPath("t", "name"),)),
+        )
+        assert rows == ({"t": "  Keyboard  "},)
+
+    def test_a_chain_runs_left_to_right(self) -> None:
+        tree = page(ld({"@type": "Product", "name": "  1,290,000  "}))
+        rows = records_from(
+            extract_structured(tree),
+            StructuredSpec(
+                kind="jsonld",
+                container="Product",
+                fields=(FieldPath("price", "name", ("trim", "to_number")),),
+            ),
+        )
+        assert rows == ({"price": 1290000},)
+
+    def test_a_transform_on_a_missing_path_stays_none(self) -> None:
+        """A transform must not invent a value where the path found nothing."""
+        tree = page(ld({"@type": "Product", "name": "x"}))
+        rows = records_from(
+            extract_structured(tree),
+            StructuredSpec(
+                kind="jsonld",
+                container="Product",
+                fields=(
+                    FieldPath("t", "name"),
+                    FieldPath("n", "missing", ("to_number",)),
+                ),
+            ),
+        )
+        assert rows == ({"t": "x", "n": None},)

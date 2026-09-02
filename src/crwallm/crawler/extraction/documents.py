@@ -29,6 +29,7 @@ from selectolax.lexbor import LexborHTMLParser, LexborNode
 
 from crwallm.crawler.contracts import ExtractionResult, FetchResponse
 from crwallm.crawler.extraction.css import CssSpec, extract_canonical, extract_links, parse
+from crwallm.crawler.extraction.structured import FieldPath
 
 __all__ = [
     "Article",
@@ -411,8 +412,8 @@ class DocumentExtractor:
     """For ``table``: a CSS selector picking which table. Absent means the
     first one that looks like data."""
 
-    fields: tuple[tuple[str, str], ...] = ()
-    """``(output_name, source_key)``. Empty keeps every key as it is."""
+    fields: tuple[FieldPath, ...] = ()
+    """Rename, narrow, and transform. Empty keeps every key as it is."""
 
     css: CssSpec = field(default_factory=lambda: CssSpec())
     name: str = "document"
@@ -480,4 +481,13 @@ class DocumentExtractor:
     def _rename(self, record: dict[str, Any]) -> dict[str, Any]:
         if not self.fields:
             return record
-        return {name: record.get(source) for name, source in self.fields}
+
+        from crwallm.crawler.extraction.transforms import apply_chain
+
+        out: dict[str, Any] = {}
+        for field_path in self.fields:
+            value = record.get(field_path.path)
+            out[field_path.name] = (
+                apply_chain(value, list(field_path.transform)) if field_path.transform else value
+            )
+        return out

@@ -20,6 +20,7 @@ from crwallm.crawler.extraction.documents import (
     extract_tables,
     parse_feed,
 )
+from crwallm.crawler.extraction.structured import FieldPath
 from crwallm.policy.url import normalize
 from crwallm.schemas.types import FetchMode
 
@@ -314,7 +315,9 @@ class TestDocumentExtractor:
         assert DocumentExtractor(kind="article").extract(self.response(html)).records == ()
 
     def test_fields_rename_rather_than_select(self) -> None:
-        extractor = DocumentExtractor(kind="feed", fields=(("headline", "title"), ("link", "url")))
+        extractor = DocumentExtractor(
+            kind="feed", fields=(FieldPath("headline", "title"), FieldPath("link", "url"))
+        )
         result = extractor.extract(self.response(RSS, "application/rss+xml"))
         assert list(result.records[0]) == ["headline", "link"]
         assert result.records[0]["headline"] == "First story"
@@ -322,6 +325,6 @@ class TestDocumentExtractor:
     def test_renaming_an_unknown_key_gives_none_not_an_error(self) -> None:
         """Recipes are written by people and by models. A typo should cost a
         column, not the crawl."""
-        extractor = DocumentExtractor(kind="feed", fields=(("x", "no_such_key"),))
+        extractor = DocumentExtractor(kind="feed", fields=(FieldPath("x", "no_such_key"),))
         result = extractor.extract(self.response(RSS, "application/rss+xml"))
         assert result.records[0] == {"x": None}

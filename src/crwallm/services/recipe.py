@@ -31,7 +31,7 @@ import yaml
 from crwallm.crawler.contracts import FetchResponse
 from crwallm.crawler.extraction.css import CssExtractor, CssSpec, FieldSpec
 from crwallm.crawler.extraction.documents import DocumentExtractor
-from crwallm.crawler.extraction.structured import StructuredSpec
+from crwallm.crawler.extraction.structured import FieldPath, StructuredSpec
 from crwallm.schemas.filters import apply_filters
 from crwallm.schemas.recipe import Recipe, RecipeQuality, RecipeStatus
 from crwallm.services.semantic import RecordSieve, SemanticScorer
@@ -176,7 +176,9 @@ def to_structured_spec(recipe: Recipe) -> StructuredSpec | None:
     return StructuredSpec(
         kind=recipe.source,
         container=recipe.container,
-        fields=tuple((f.name, f.selector) for f in recipe.fields),
+        fields=tuple(
+            FieldPath(name=f.name, path=f.selector, transform=f.transform) for f in recipe.fields
+        ),
     )
 
 
@@ -192,7 +194,10 @@ def to_document_spec(recipe: Recipe) -> DocumentExtractor | None:
     return DocumentExtractor(
         kind=recipe.source,
         container=recipe.container,
-        fields=tuple((f.name, f.selector or f.name) for f in recipe.fields),
+        fields=tuple(
+            FieldPath(name=f.name, path=f.selector or f.name, transform=f.transform)
+            for f in recipe.fields
+        ),
     )
 
 

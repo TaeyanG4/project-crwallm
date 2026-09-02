@@ -165,6 +165,22 @@ def _to_absolute_url(value: Any, ctx: TransformContext) -> Any:
 # -------------------------------------------------------------------- times
 
 _DURATION = re.compile(r"^(?:(\d+):)?(\d{1,2}):(\d{2})$")
+"""Clock notation, which is what a rendered video listing shows."""
+
+_ISO_DURATION = re.compile(
+    r"^P(?:(?P<days>\d+)D)?"
+    r"(?:T(?:(?P<hours>\d+)H)?(?:(?P<minutes>\d+)M)?(?:(?P<seconds>\d+(?:\.\d+)?)S)?)?$",
+    re.IGNORECASE,
+)
+"""ISO 8601, which is what schema.org uses - ``PT3M34S``.
+
+Added when the declared-data extractors arrived. Every ``VideoObject`` states
+its length this way and nothing could turn it into a number, so "only videos
+between one and thirty minutes" had no field to compare against - the exact
+question the media work was for.
+
+Years and months are not handled on purpose: they have no fixed length in
+seconds, and a media duration never uses them."""
 _DATE_FORMATS = (
     "%Y-%m-%d",
     "%Y-%m-%dT%H:%M:%S",
@@ -182,16 +198,35 @@ _DATE_FORMATS = (
 
 @register("duration_to_seconds")
 def _duration_to_seconds(value: Any, ctx: TransformContext) -> Any:
-    """``"1:23:45"`` or ``"12:34"`` to seconds. Video listings use both."""
+    """Seconds, from either notation a video length arrives in.
+
+    ``"1:23:45"`` and ``"12:34"`` come off a rendered page; ``"PT3M34S"``
+    comes from JSON-LD and microdata. A recipe should not have to know which
+    of the two a given site chose, and on a page carrying both they mean the
+    same thing.
+    """
     if isinstance(value, int | float):
         return int(value)
     if not isinstance(value, str):
         return None
-    match = _DURATION.match(value.strip())
-    if not match:
+
+    text = value.strip()
+    match = _DURATION.match(text)
+    if match:
+        hours, minutes, seconds = match.groups()
+        return int(hours or 0) * 3600 + int(minutes) * 60 + int(seconds)
+
+    iso = _ISO_DURATION.match(text)
+    if iso is None or not any(iso.groupdict().values()):
+        # A bare "P" or "PT" matches the pattern and means nothing.
         return None
-    hours, minutes, seconds = match.groups()
-    return int(hours or 0) * 3600 + int(minutes) * 60 + int(seconds)
+    parts = iso.groupdict()
+    return int(
+        int(parts["days"] or 0) * 86400
+        + int(parts["hours"] or 0) * 3600
+        + int(parts["minutes"] or 0) * 60
+        + float(parts["seconds"] or 0)
+    )
 
 
 @register("parse_date")
