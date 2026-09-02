@@ -1,0 +1,8 @@
+name: hn-feed
+version: 1
+status: candidate
+source: feed
+source_url: https://news.ycombinator.com/rss
+allowed_domains:
+- ycombinator.com
+notes: a feed carries its own schema, so this recipe names no fields

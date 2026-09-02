@@ -12,11 +12,16 @@ from __future__ import annotations
 
 from selectolax.lexbor import LexborHTMLParser
 
+from crwallm.crawler.contracts import FetchResponse
+from crwallm.crawler.extraction.css import CssSpec
 from crwallm.crawler.extraction.documents import (
+    DocumentExtractor,
     extract_article,
     extract_tables,
     parse_feed,
 )
+from crwallm.policy.url import normalize
+from crwallm.schemas.types import FetchMode
 
 RSS = """<?xml version="1.0"?>
 <rss version="2.0"><channel>
@@ -227,3 +232,96 @@ class TestArticles:
 
     def test_an_empty_document_yields_nothing(self) -> None:
         assert extract_article(LexborHTMLParser("<html><body></body></html>")) is None
+
+
+class TestDocumentExtractor:
+    """The three known-schema sources, as a recipe would run them.
+
+    What matters here is that they need no field list. A feed entry has a
+    title and a link because that is what a feed entry is; making a recipe
+    restate it would be ceremony, and a recipe that has to restate a schema is
+    a recipe that can get it wrong.
+    """
+
+    def response(self, body: str | bytes, content_type: str = "text/html") -> FetchResponse:
+        return FetchResponse(
+            url=normalize("https://site.test/page"),
+            status=200,
+            headers={"content-type": content_type},
+            body=body.encode() if isinstance(body, str) else body,
+            elapsed_ms=1,
+            fetch_mode=FetchMode.HTTP,
+        )
+
+    def test_a_feed_needs_no_fields(self) -> None:
+        result = DocumentExtractor(kind="feed").extract(self.response(RSS, "application/rss+xml"))
+        assert len(result.records) == 2
+        assert result.records[0]["title"] == "First story"
+        assert result.records[0]["url"] == "https://news.test/1"
+
+    def test_a_feeds_links_are_its_entries(self) -> None:
+        """Re-reading the document as HTML to find links would give the
+        channel's own navigation instead of the stories."""
+        extractor = DocumentExtractor(kind="feed", css=CssSpec(follow_links=True))
+        result = extractor.extract(self.response(RSS, "application/rss+xml"))
+        assert set(result.links) == {"https://news.test/1", "https://news.test/2"}
+
+    def test_a_feed_served_as_html_still_parses(self) -> None:
+        """Plenty of sites send the wrong content type; the parser refuses
+        non-XML on its own, so the header is not worth trusting either way."""
+        result = DocumentExtractor(kind="feed").extract(self.response(RSS, "text/html"))
+        assert len(result.records) == 2
+
+    def test_a_table_takes_its_names_from_its_header(self) -> None:
+        html = """<table>
+          <tr><th>Model</th><th>Price</th></tr>
+          <tr><td>K1</td><td>129000</td></tr>
+          <tr><td>K2</td><td>89000</td></tr>
+        </table>"""
+        result = DocumentExtractor(kind="table").extract(self.response(html))
+        assert result.records[0] == {"Model": "K1", "Price": "129000"}
+
+    def test_a_container_picks_which_table(self) -> None:
+        first = "<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr>"
+        first += "<tr><td>3</td><td>4</td></tr></table>"
+        second = '<div id="data"><table><tr><th>X</th><th>Y</th></tr>'
+        second += "<tr><td>9</td><td>8</td></tr><tr><td>7</td><td>6</td></tr></table></div>"
+        result = DocumentExtractor(kind="table", container="#data").extract(
+            self.response(first + second)
+        )
+        assert list(result.records[0]) == ["X", "Y"]
+
+    def test_a_container_that_matches_nothing_yields_nothing(self) -> None:
+        result = DocumentExtractor(kind="table", container="#missing").extract(
+            self.response("<table><tr><th>A</th><th>B</th></tr></table>")
+        )
+        assert result.records == ()
+
+    def test_an_article_is_one_record(self) -> None:
+        result = DocumentExtractor(kind="article").extract(self.response(ARTICLE_PAGE))
+        assert len(result.records) == 1
+        assert result.records[0]["title"] == "The quiet rise of the local crawler"
+
+    def test_an_article_also_fills_the_text_field(self) -> None:
+        """The deduper and the soft-404 detector both read `text`, so an
+        article extractor that left it empty would disable them."""
+        result = DocumentExtractor(kind="article").extract(self.response(ARTICLE_PAGE))
+        assert result.text is not None
+        assert "quietly failing" in result.text
+
+    def test_a_page_with_no_article_yields_no_records(self) -> None:
+        html = "<html><body><ul><li><a href='/1'>One</a></li></ul></body></html>"
+        assert DocumentExtractor(kind="article").extract(self.response(html)).records == ()
+
+    def test_fields_rename_rather_than_select(self) -> None:
+        extractor = DocumentExtractor(kind="feed", fields=(("headline", "title"), ("link", "url")))
+        result = extractor.extract(self.response(RSS, "application/rss+xml"))
+        assert list(result.records[0]) == ["headline", "link"]
+        assert result.records[0]["headline"] == "First story"
+
+    def test_renaming_an_unknown_key_gives_none_not_an_error(self) -> None:
+        """Recipes are written by people and by models. A typo should cost a
+        column, not the crawl."""
+        extractor = DocumentExtractor(kind="feed", fields=(("x", "no_such_key"),))
+        result = extractor.extract(self.response(RSS, "application/rss+xml"))
+        assert result.records[0] == {"x": None}

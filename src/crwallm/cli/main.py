@@ -16,6 +16,7 @@ import asyncio
 import contextlib
 import json
 import re
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Annotated, Any
@@ -27,6 +28,28 @@ from crwallm import __version__
 from crwallm.cli.model_cmd import app as model_app
 from crwallm.cli.recipe_cmd import app as recipe_app
 from crwallm.cli.setup_cmd import app as setup_app
+
+
+def _use_utf8_output() -> None:
+    """Print UTF-8 whatever the console claims it can take.
+
+    Windows consoles default to the system codepage - cp949 on a Korean
+    install - and the crawler collects text from anywhere. Printing a table
+    from Wikipedia killed the whole command on an en-dash: not a truncated
+    line, a ``UnicodeEncodeError`` and no output at all.
+
+    ``errors="replace"`` rather than strict, because a character the terminal
+    genuinely cannot draw should cost that character and nothing else. Files
+    written with ``--output`` are UTF-8 regardless and keep the real text.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            with contextlib.suppress(Exception):
+                reconfigure(encoding="utf-8", errors="replace")
+
+
+_use_utf8_output()
 
 app = typer.Typer(
     name="crwallm",

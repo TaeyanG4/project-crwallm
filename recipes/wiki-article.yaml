@@ -1,0 +1,13 @@
+name: wiki-article
+version: 1
+status: candidate
+source: article
+source_url: https://en.wikipedia.org/wiki/Web_crawler
+allowed_domains:
+- wikipedia.org
+fields:
+- name: heading
+  selector: title
+- name: words
+  selector: word_count
+notes: fields here only rename what the shape already provides

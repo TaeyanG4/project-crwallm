@@ -27,8 +27,12 @@ from xml.etree.ElementTree import Element, ParseError, fromstring
 
 from selectolax.lexbor import LexborHTMLParser, LexborNode
 
+from crwallm.crawler.contracts import ExtractionResult, FetchResponse
+from crwallm.crawler.extraction.css import CssSpec, extract_canonical, extract_links, parse
+
 __all__ = [
     "Article",
+    "DocumentExtractor",
     "FeedEntry",
     "FeedParseError",
     "extract_article",
@@ -204,7 +208,7 @@ def parse_feed(body: bytes | str, base_url: str = "") -> tuple[FeedEntry, ...]:
 
 
 def extract_tables(
-    tree: LexborHTMLParser,
+    scope: LexborHTMLParser | LexborNode,
     *,
     min_rows: int = 2,
     min_columns: int = 2,
@@ -221,7 +225,7 @@ def extract_tables(
     """
     out: list[tuple[dict[str, str], ...]] = []
 
-    for table in tree.css("table"):
+    for table in scope.css("table"):
         # `tr` alone, not `thead tr, tr` or `tbody tr, tr`: selectolax returns
         # a node once per matching selector, so the pair matched every row in
         # a table that had a tbody twice and doubled every result.
@@ -384,3 +388,96 @@ def extract_article(tree: LexborHTMLParser, *, min_words: int = 40) -> Article |
         title=title_node.text(deep=True, strip=True) if title_node is not None else None,
         word_count=words,
     )
+
+
+# --------------------------------------------------------------- as records
+
+
+@dataclass(slots=True)
+class DocumentExtractor:
+    """``Extractor`` for the three shapes whose schema is already known.
+
+    Unlike a CSS or JSON-LD recipe, these need no field list. A feed entry has
+    a title, a link and a date because that is what a feed entry *is*; a
+    table's field names are its header row; an article is one body of text.
+    Making a recipe restate any of that would be ceremony, so ``fields`` here
+    only ever renames or narrows what the shape already provides.
+    """
+
+    kind: str
+    """``feed``, ``table`` or ``article``."""
+
+    container: str | None = None
+    """For ``table``: a CSS selector picking which table. Absent means the
+    first one that looks like data."""
+
+    fields: tuple[tuple[str, str], ...] = ()
+    """``(output_name, source_key)``. Empty keeps every key as it is."""
+
+    css: CssSpec = field(default_factory=lambda: CssSpec())
+    name: str = "document"
+
+    def supports(self, response: FetchResponse) -> bool:
+        content_type = (response.content_type or "").lower()
+        if self.kind == "feed":
+            # A feed can be served as any of these, and plenty of sites get it
+            # wrong and send text/html; the parser refuses non-XML anyway.
+            return True
+        return content_type.startswith("text/html") or content_type.endswith("+xml")
+
+    def extract(self, response: FetchResponse) -> ExtractionResult:
+        base_url = response.final_url or response.url.url
+
+        if self.kind == "feed":
+            try:
+                entries = parse_feed(response.body, base_url)
+            except FeedParseError:
+                entries = ()
+            records = tuple(self._rename(e.as_record()) for e in entries)
+            # A feed's entries *are* the links worth following, and they were
+            # just parsed - re-reading the document as HTML to find them again
+            # would produce the channel's own navigation instead.
+            links = tuple(e.url for e in entries if e.url) if self.css.follow_links else ()
+            return ExtractionResult(
+                extractor=self.name, records=records, links=links, canonical_url=None, text=None
+            )
+
+        tree, _ = parse(response)
+        links = (
+            extract_links(tree, base_url, self.css.link_selector) if self.css.follow_links else ()
+        )
+        canonical = extract_canonical(tree)
+
+        if self.kind == "table":
+            scope: LexborHTMLParser | LexborNode = tree
+            if self.container:
+                # `default=None` is what makes the return type optional;
+                # without it selectolax is typed as always finding one.
+                picked = tree.css_first(self.container, default=None, strict=False)
+                if picked is None:
+                    return ExtractionResult(
+                        extractor=self.name, records=(), links=links, canonical_url=canonical
+                    )
+                scope = picked
+            tables = extract_tables(scope)
+            rows = tables[0] if tables else ()
+            return ExtractionResult(
+                extractor=self.name,
+                records=tuple(self._rename(dict(r)) for r in rows),
+                links=links,
+                canonical_url=canonical,
+            )
+
+        article = extract_article(tree)
+        return ExtractionResult(
+            extractor=self.name,
+            records=(self._rename(article.as_record()),) if article else (),
+            links=links,
+            canonical_url=canonical,
+            text=article.text if article else None,
+        )
+
+    def _rename(self, record: dict[str, Any]) -> dict[str, Any]:
+        if not self.fields:
+            return record
+        return {name: record.get(source) for name, source in self.fields}

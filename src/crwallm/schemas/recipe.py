@@ -38,6 +38,10 @@ __all__ = [
 ]
 
 
+_SCHEMA_KNOWN_SOURCES = frozenset({"feed", "table", "article"})
+"""Sources that supply their own field names, so a recipe need not."""
+
+
 class RecipeStatus(StrEnum):
     CANDIDATE = "candidate"
     """Proposed but not yet proven against a real page."""
@@ -179,7 +183,7 @@ class Recipe(BaseModel):
 
     fetch_mode: FetchMode = FetchMode.HTTP
 
-    source: Literal["css", "jsonld", "embedded"] = "css"
+    source: Literal["css", "jsonld", "embedded", "feed", "table", "article"] = "css"
     """Where the records come from.
 
     ``css`` reads the rendered DOM. ``jsonld`` and ``embedded`` read what the
@@ -187,8 +191,14 @@ class Recipe(BaseModel):
     selector, because it does not move when the site is restyled
     (docs/06_EXTRACTION_ARCHITECTURE.md).
 
-    The other fields keep their meaning across all three: ``container`` finds
-    the repeating unit and ``fields`` find values inside it. Only the language
+    ``feed``, ``table`` and ``article`` are shapes whose schema is already
+    known, and they need no field list at all: a feed entry has a title and a
+    link because that is what a feed entry is, a table's field names are its
+    header row, an article is one body of text. For these ``fields`` only
+    renames or narrows what the shape already provides.
+
+    For the rest the other fields keep their meaning: ``container`` finds the
+    repeating unit and ``fields`` find values inside it. Only the language
     changes - a CSS selector, a schema.org ``@type``, or a dotted JSON path -
     which is what lets scoring and activation stay one code path.
     """
@@ -249,7 +259,7 @@ class Recipe(BaseModel):
         """
         if self.status is not RecipeStatus.ACTIVE:
             return self
-        if not self.fields:
+        if not self.fields and self.source not in _SCHEMA_KNOWN_SOURCES:
             raise ValueError("an active recipe must extract at least one field")
         if self.quality.record_count < MIN_RECORDS_FOR_ACTIVATION:
             raise ValueError(

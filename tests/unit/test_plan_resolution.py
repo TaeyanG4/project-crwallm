@@ -215,3 +215,85 @@ class TestDeclaredDataRecipes:
         plan = resolve_plan(spec(recipe="products", follow_links=True), recipes_dir=tmp_path)
         extractor = build_extractor(plan)
         assert extractor.css.follow_links is True  # type: ignore[union-attr]
+
+
+class TestKnownSchemaRecipes:
+    """Feed, table and article recipes, wired end to end.
+
+    The wiring is the whole risk. Each of these extractors was written and
+    tested in isolation and then reached from nowhere - which is exactly how
+    the worker ran crawls without a recipe for a whole phase.
+    """
+
+    def save(self, tmp_path: Path, source: str, **overrides: object) -> None:
+        base: dict[str, object] = {
+            "name": "doc",
+            "source": source,
+            "source_url": "https://shop.test/feed",
+            "allowed_domains": ("shop.test",),
+        }
+        base.update(overrides)
+        save_recipe_file(Recipe(**base), tmp_path)  # type: ignore[arg-type]
+
+    def test_a_feed_recipe_needs_no_fields(self, tmp_path: Path) -> None:
+        from crwallm.crawler.extraction.documents import DocumentExtractor
+        from crwallm.services.crawl import build_extractor
+
+        self.save(tmp_path, "feed")
+        plan = resolve_plan(spec(recipe="doc"), recipes_dir=tmp_path)
+        extractor = build_extractor(plan)
+        assert isinstance(extractor, DocumentExtractor)
+        assert extractor.kind == "feed"
+
+    def test_an_active_feed_recipe_is_allowed_without_fields(self, tmp_path: Path) -> None:
+        """Activation normally demands at least one field. A shape that
+        supplies its own schema has nothing to demand."""
+        self.save(
+            tmp_path,
+            "feed",
+            status=RecipeStatus.ACTIVE,
+            quality=RecipeQuality(
+                record_count=30,
+                container_matched=True,
+                consistency=1.0,
+                fill_rates={"title": 1.0},
+                measured_at=datetime.now(UTC),
+            ),
+        )
+        plan = resolve_plan(spec(recipe="doc"), recipes_dir=tmp_path)
+        assert plan.document is not None
+
+    def test_a_table_recipe_carries_its_container(self, tmp_path: Path) -> None:
+        from crwallm.services.crawl import build_extractor
+
+        self.save(tmp_path, "table", container="#results")
+        plan = resolve_plan(spec(recipe="doc"), recipes_dir=tmp_path)
+        extractor = build_extractor(plan)
+        assert extractor.container == "#results"  # type: ignore[union-attr]
+
+    def test_an_article_recipe_maps_renames(self, tmp_path: Path) -> None:
+        from crwallm.services.crawl import build_extractor
+
+        self.save(
+            tmp_path,
+            "article",
+            fields=(FieldRule(name="heading", selector="title"),),
+        )
+        plan = resolve_plan(spec(recipe="doc"), recipes_dir=tmp_path)
+        assert build_extractor(plan).fields == (("heading", "title"),)  # type: ignore[union-attr]
+
+    def test_a_field_without_a_selector_renames_to_itself(self, tmp_path: Path) -> None:
+        """``- name: title`` on a known-schema source means "keep title"."""
+        from crwallm.services.crawl import build_extractor
+
+        self.save(tmp_path, "feed", fields=(FieldRule(name="title"),))
+        assert build_extractor(resolve_plan(spec(recipe="doc"), recipes_dir=tmp_path)).fields == (
+            ("title", "title"),
+        )  # type: ignore[union-attr]
+
+    def test_following_is_still_configured_from_the_spec(self, tmp_path: Path) -> None:
+        from crwallm.services.crawl import build_extractor
+
+        self.save(tmp_path, "feed")
+        plan = resolve_plan(spec(recipe="doc", follow_links=True), recipes_dir=tmp_path)
+        assert build_extractor(plan).css.follow_links is True  # type: ignore[union-attr]

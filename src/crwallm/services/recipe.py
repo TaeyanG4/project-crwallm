@@ -30,6 +30,7 @@ import yaml
 
 from crwallm.crawler.contracts import FetchResponse
 from crwallm.crawler.extraction.css import CssExtractor, CssSpec, FieldSpec
+from crwallm.crawler.extraction.documents import DocumentExtractor
 from crwallm.crawler.extraction.structured import StructuredSpec
 from crwallm.schemas.filters import apply_filters
 from crwallm.schemas.recipe import Recipe, RecipeQuality, RecipeStatus
@@ -150,14 +151,33 @@ def to_css_spec(recipe: Recipe, *, follow_links: bool = False) -> CssSpec:
     )
 
 
+DOCUMENT_SOURCES = frozenset({"feed", "table", "article"})
+
+
 def to_structured_spec(recipe: Recipe) -> StructuredSpec | None:
-    """The declared-data half of a recipe, or None for a CSS one."""
-    if recipe.source == "css":
+    """The declared-data half of a recipe, or None for any other source."""
+    if recipe.source not in {"jsonld", "embedded"}:
         return None
     return StructuredSpec(
         kind=recipe.source,
         container=recipe.container,
         fields=tuple((f.name, f.selector) for f in recipe.fields),
+    )
+
+
+def to_document_spec(recipe: Recipe) -> DocumentExtractor | None:
+    """The known-schema half, or None.
+
+    Returns the extractor rather than a spec because there is no spec to
+    speak of: the shape carries its own schema, and what the recipe adds is
+    at most a rename.
+    """
+    if recipe.source not in DOCUMENT_SOURCES:
+        return None
+    return DocumentExtractor(
+        kind=recipe.source,
+        container=recipe.container,
+        fields=tuple((f.name, f.selector or f.name) for f in recipe.fields),
     )
 
 

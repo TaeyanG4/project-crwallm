@@ -1,0 +1,7 @@
+name: pop-table
+version: 1
+status: candidate
+source: table
+source_url: https://en.wikipedia.org/wiki/List_of_countries_by_population_(United_Nations)
+allowed_domains:
+- wikipedia.org

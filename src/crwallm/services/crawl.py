@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import AsyncGenerator, AsyncIterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from crwallm.crawler.contracts import Extractor
 from crwallm.crawler.extraction.css import CssExtractor, CssSpec, FieldSpec
+from crwallm.crawler.extraction.documents import DocumentExtractor
 from crwallm.crawler.extraction.structured import StructuredExtractor, StructuredSpec
 from crwallm.crawler.fetching.http import SafeHttpFetcher
 from crwallm.crawler.frontier.memory import MemoryFrontier
@@ -27,6 +28,7 @@ from crwallm.services.recipe import (
     RecipeFileError,
     RecipeStore,
     to_css_spec,
+    to_document_spec,
     to_structured_spec,
 )
 from crwallm.storage.blob import BlobStore, NullBlobStore
@@ -54,6 +56,11 @@ class CrawlPlan:
 
     spec: CrawlSpec
     extraction: CssSpec = field(default_factory=CssSpec)
+
+    document: DocumentExtractor | None = None
+    """Set when the recipe reads a shape that carries its own schema - a
+    feed, a table, an article. Ready-built rather than a spec, because there
+    is nothing to configure beyond an optional rename."""
 
     structured: StructuredSpec | None = None
     """Set when the recipe reads declared data instead of the DOM.
@@ -132,16 +139,25 @@ def resolve_plan(spec: CrawlSpec, *, recipes_dir: Path | None = None) -> CrawlPl
         spec=spec,
         extraction=to_css_spec(recipe, follow_links=spec.follow_links),
         structured=to_structured_spec(recipe),
+        document=to_document_spec(recipe),
     )
 
 
 def build_extractor(plan: CrawlPlan) -> Extractor:
+    """One extractor for the plan, chosen by where its records come from.
+
+    Link discovery is configured identically for all of them: whatever the
+    records were read from, the crawl still has to walk the site, and a recipe
+    that changed source must not quietly become a one-page crawl.
+    """
     css = CssSpec(
         container=plan.extraction.container,
         fields=plan.extraction.fields,
         link_selector=plan.extraction.link_selector,
         follow_links=plan.spec.follow_links,
     )
+    if plan.document is not None:
+        return replace(plan.document, css=css)
     if plan.structured is not None:
         return StructuredExtractor(spec=plan.structured, css=css)
     return CssExtractor(css)
