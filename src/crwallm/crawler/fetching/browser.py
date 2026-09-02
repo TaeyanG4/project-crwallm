@@ -122,10 +122,15 @@ class SeenRequests:
     (docs/06_EXTRACTION_ARCHITECTURE.md).
 
     Best-effort by construction. Navigation returns at ``domcontentloaded``,
-    so what lands here is whatever the page had issued by then - a request
-    fired from a later callback is simply missed. Waiting for the network to
-    settle would catch more and would cost the timeout on every page with a
-    polling widget, which is the trade this whole module refuses to make.
+    so what lands here is whatever the page had issued by then, and a request
+    fired a moment later is simply missed - which is not a hypothetical: a
+    test asserting that one particular XHR was caught passed alone and failed
+    in a full run.
+
+    ``BrowserFetcher(settle_ms=...)`` buys a fuller record with a fixed pause.
+    Not ``networkidle``, which never arrives on a page with a polling widget,
+    and zero by default because a crawl that is not hunting for endpoints
+    should not pay for the wait.
     """
 
     urls: list[str] = field(default_factory=list)
@@ -157,6 +162,7 @@ class BrowserFetcher:
         max_pages: int = 4,
         block_resources: bool = True,
         scroll: ScrollPolicy | None = None,
+        settle_ms: int = 0,
         allow_private_subresources: bool = False,
     ) -> None:
         self._guard = guard
@@ -164,6 +170,7 @@ class BrowserFetcher:
         self._headless = headless
         self._block = block_resources
         self._scroll = scroll or ScrollPolicy()
+        self._settle_ms = settle_ms
         self._allow_private = allow_private_subresources
 
         self._playwright: Any = None
@@ -348,35 +355,49 @@ class BrowserFetcher:
         )
         await page.route("**/*", handler)
 
+        # Every return below goes through here. The handler has to outlive the
+        # navigation: scrolling and settling both happen after `goto` returns,
+        # and that is exactly when a feed calls its API. Unrouting early left
+        # those requests unrecorded *and* unchecked - a page could reach a
+        # private address the moment loading finished, which is the whole
+        # thing the guard exists to stop. Found by a test that failed half the
+        # time and passed alone.
         try:
-            response = await page.goto(
-                request.url.url,
-                wait_until="domcontentloaded",
-                timeout=request.timeout_s * 1000,
-            )
-        except PlaywrightTimeout:
-            return FetchFailure(
-                url=request.url,
-                error_kind=ErrorKind.READ_TIMEOUT,
-                message=f"navigation exceeded {request.timeout_s}s",
-                retryable=True,
-            )
+            try:
+                response = await page.goto(
+                    request.url.url,
+                    wait_until="domcontentloaded",
+                    timeout=request.timeout_s * 1000,
+                )
+            except PlaywrightTimeout:
+                return FetchFailure(
+                    url=request.url,
+                    error_kind=ErrorKind.READ_TIMEOUT,
+                    message=f"navigation exceeded {request.timeout_s}s",
+                    retryable=True,
+                )
+
+            if response is None:
+                return FetchFailure(
+                    url=request.url,
+                    error_kind=ErrorKind.CONN_REFUSED,
+                    message="navigation produced no response",
+                    retryable=True,
+                )
+
+            if self._settle_ms:
+                await _settle(page, seen, budget_ms=self._settle_ms)
+
+            if self._scroll.max_rounds:
+                await _scroll_for_more(page, self._scroll)
+
+            html = await page.content()
+            headers = {k.lower(): v for k, v in (await response.all_headers()).items()}
+            status = response.status
         finally:
             with contextlib.suppress(Exception):
                 await page.unroute("**/*", handler)
 
-        if response is None:
-            return FetchFailure(
-                url=request.url,
-                error_kind=ErrorKind.CONN_REFUSED,
-                message="navigation produced no response",
-                retryable=True,
-            )
-
-        if self._scroll.max_rounds:
-            await _scroll_for_more(page, self._scroll)
-
-        html = await page.content()
         body = html.encode("utf-8")
         if len(body) > request.byte_limit:
             return FetchFailure(
@@ -386,14 +407,13 @@ class BrowserFetcher:
             )
 
         final_url = page.url
-        headers = {k.lower(): v for k, v in (await response.all_headers()).items()}
         # The rendered document is UTF-8 whatever the source declared: this is
         # `page.content()`, which is serialised from the parsed DOM.
         headers["content-type"] = "text/html; charset=utf-8"
 
         return FetchResponse(
             url=request.url,
-            status=response.status,
+            status=status,
             headers=headers,
             body=body,
             elapsed_ms=int((time.perf_counter() - started) * 1000),
@@ -543,3 +563,39 @@ def _normalized(url: str) -> NormalizedUrl | None:
     with contextlib.suppress(UrlNormalizationError):
         return normalize(url)
     return None
+
+
+SETTLE_TICK_MS = 100
+SETTLE_QUIET_MS = 300
+
+
+async def _settle(page: Page, seen: SeenRequests, *, budget_ms: int) -> None:
+    """Give the page a moment to issue the calls it makes on load.
+
+    Waits for *quiet* rather than for a fixed interval, bounded by a budget.
+    A page that fires its API call immediately costs one quiet period; one
+    that fires nothing costs the same; one that keeps polling costs the budget
+    and no more.
+
+    Not Playwright's ``networkidle``: that waits for the whole network to go
+    quiet and never returns on a page with an open websocket, which is the
+    trade this module refuses everywhere else. Quiet here means "we have seen
+    no new request", measured against our own record.
+
+    Even so this is a race, and it is meant to narrow one rather than remove
+    it. A page that calls its API a full second after load will be missed by a
+    500ms budget, and that is the caller's dial to turn.
+    """
+    deadline = time.perf_counter() + budget_ms / 1000
+    last_count = len(seen.urls)
+    quiet_for = 0
+
+    while time.perf_counter() < deadline:
+        await page.wait_for_timeout(SETTLE_TICK_MS)
+        if len(seen.urls) != last_count:
+            last_count = len(seen.urls)
+            quiet_for = 0
+            continue
+        quiet_for += SETTLE_TICK_MS
+        if quiet_for >= SETTLE_QUIET_MS and last_count:
+            return

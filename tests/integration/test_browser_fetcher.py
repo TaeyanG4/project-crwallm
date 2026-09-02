@@ -158,6 +158,26 @@ class TestSsrf:
         assert out is not None
         assert out.text(strip=True) == "REFUSED", out.text(strip=True)
 
+    async def test_a_subresource_after_load_is_still_guarded(self, server) -> None:  # type: ignore[no-untyped-def]
+        """The regression that a flaky test exposed.
+
+        The route handler was removed as soon as ``goto`` returned, so a page
+        that waited a moment before reaching for a private address got its
+        answer with nothing watching - and scrolling, which happens after
+        navigation, ran entirely unguarded.
+        """
+        from selectolax.lexbor import LexborHTMLParser
+
+        f = BrowserFetcher(loopback_guard(), max_pages=1, settle_ms=2000)
+        try:
+            result = await f.fetch(request_for(server.url("/js/late-ssrf")))
+            assert isinstance(result, FetchResponse)
+            out = LexborHTMLParser(result.body.decode()).css_first("#out")
+            assert out is not None
+            assert out.text(strip=True) == "REFUSED", out.text(strip=True)
+        finally:
+            await f.aclose()
+
     async def test_a_file_url_is_refused(self, fetcher) -> None:  # type: ignore[no-untyped-def]
         """`file://` would read this machine's disk into a page the crawled
         site controls. Refused at normalisation, before any browser sees it."""
@@ -187,12 +207,31 @@ class TestResourceBlocking:
 
 
 class TestNetworkObservation:
-    async def test_an_xhr_the_page_made_is_recorded(self, fetcher, server) -> None:  # type: ignore[no-untyped-def]
+    async def test_an_xhr_the_page_made_is_recorded(self, server) -> None:  # type: ignore[no-untyped-def]
         """Phase 6 finds endpoints a site declares; this finds the ones it
         merely uses. An XHR seen once here can be called directly forever
-        after, twenty times faster than the browser that found it."""
-        await fetcher.fetch(request_for(server.url("/js/rendered")))
-        assert any("/api/" in url for url in fetcher.last_requests.urls)
+        after, twenty times faster than the browser that found it.
+
+        ``settle_ms`` is what makes this deterministic. Without it the test
+        asserts a race - navigation returns at ``domcontentloaded`` and the
+        page's own fetch may not have been issued yet, which is exactly how
+        it passed alone and failed in a full run.
+        """
+        # A budget, not a fixed wait: the fetch returns as soon as the page
+        # goes quiet, so a generous ceiling costs nothing when it is quick
+        # and still holds up when the machine is loaded by a full test run.
+        f = BrowserFetcher(loopback_guard(), max_pages=1, settle_ms=3000)
+        try:
+            await f.fetch(request_for(server.url("/js/rendered")))
+            assert any("/api/" in url for url in f.last_requests.urls)
+        finally:
+            await f.aclose()
+
+    async def test_settling_is_off_by_default(self) -> None:
+        """A crawl that is not hunting for endpoints must not pay the wait."""
+        f = BrowserFetcher(loopback_guard())
+        assert f._settle_ms == 0
+        await f.aclose()
 
     async def test_each_fetch_starts_a_fresh_record(self, fetcher, server) -> None:  # type: ignore[no-untyped-def]
         """Otherwise the list grows for the life of the crawl and stops

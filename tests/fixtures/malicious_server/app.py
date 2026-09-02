@@ -457,6 +457,26 @@ def create_app() -> FastAPI:
           </script>
         </body></html>"""
 
+    @app.get("/js/late-ssrf", response_class=HTMLResponse)
+    async def js_late_ssrf() -> str:
+        """Reaches for a private address *after* loading finishes.
+
+        The interesting half of the SSRF case. A guard installed only for the
+        navigation is gone by the time this fires, and the page gets its
+        answer with nothing watching.
+        """
+        return f"""<html><body>
+          <div id="out">clean</div>
+          <script>
+            setTimeout(() => {{
+              fetch('http://{METADATA_V4}/latest/meta-data/')
+                .then(r => r.text())
+                .then(t => {{ document.getElementById('out').textContent = 'LEAKED:' + t; }})
+                .catch(() => {{ document.getElementById('out').textContent = 'REFUSED'; }});
+            }}, 250);
+          </script>
+        </body></html>"""
+
     @app.get("/js/heavy", response_class=HTMLResponse)
     async def js_heavy() -> str:
         """Subresources that carry bytes and no data."""
