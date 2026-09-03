@@ -164,7 +164,8 @@ async function collect() {
     .filter((pick) => pick.name);
 
   if (picks.length === 0) {
-    toast("모을 항목에 이름을 하나 이상 붙여주세요.", true);
+    // Reachable only by clearing every box, since they all arrive filled.
+    toast("이름을 전부 지우셨어요. 모을 것을 하나는 남겨주세요.", true);
     return;
   }
 

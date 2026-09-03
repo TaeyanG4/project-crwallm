@@ -29,6 +29,8 @@ from pathlib import Path
 from typing import Any, TypeVar
 from urllib.parse import urlsplit
 
+from crwallm.desktop.naming import name_columns
+
 __all__ = ["Bridge", "Picked"]
 
 T = TypeVar("T")
@@ -384,56 +386,32 @@ def _build(url: str, looked: dict[str, Any], picks: list[Picked], options: dict[
     return spec, Extraction(container=looked["container"], fields=fields, follow_links=follow)
 
 
-_SUGGESTIONS = (
-    ("href", "링크"),
-    ("src", "이미지"),
-)
-
-
 def _columns(usable: Any) -> list[dict[str, Any]]:
-    """The picker's rows.
+    """The picker's rows, every one of them already named.
 
-    Suggested names are handed out once each. A listing with two link columns
-    would otherwise arrive with both boxes pre-filled "링크", and pressing the
-    button on that loses one of them - so the second box comes back empty,
-    which reads as a question rather than an answer.
+    Naming used to be the price of entry: empty boxes, and an empty box means
+    "do not collect", so five columns was five decisions before the button did
+    anything. Now the button works on arrival and clearing a box is how you
+    drop a column - the same rule, without the toll.
     """
-    out: list[dict[str, Any]] = []
-    taken: set[str] = set()
-    for column in usable:
-        name = _suggest(column)
-        if name in taken:
-            name = ""
-        elif name:
-            taken.add(name)
-        out.append(
-            {
-                "index": column.index,
-                # The window never shows this - the whole point is that nobody
-                # reads a selector - but `collect` builds the plan from what
-                # `look` found, and it has to come from somewhere. Leaving it
-                # out was a KeyError waiting for the first person who pressed
-                # the button.
-                "selector": column.selector,
-                "samples": [s for s in column.samples[:2] if s],
-                "kind": column.kind,
-                "fill": round(column.fill_rate * 100),
-                "suggested": name,
-            }
-        )
+    out: list[dict[str, Any]] = [
+        {
+            "index": column.index,
+            # The window never shows this - the whole point is that nobody
+            # reads a selector - but `collect` builds the plan from what
+            # `look` found, and it has to come from somewhere. Leaving it out
+            # was a KeyError waiting for the first person who pressed the
+            # button. It is also what the names are read off.
+            "selector": column.selector,
+            "samples": [s for s in column.samples[:2] if s],
+            "kind": column.kind,
+            "fill": round(column.fill_rate * 100),
+        }
+        for column in usable
+    ]
+    for row, name in zip(out, name_columns(out), strict=True):
+        row["suggested"] = name
     return out
-
-
-def _suggest(column: Any) -> str:
-    """A starting name, so the person is editing rather than inventing.
-
-    Only where the *kind* says something. Guessing at what a text column means
-    is what the model is for, and this path deliberately runs without one.
-    """
-    for kind, label in _SUGGESTIONS:
-        if column.kind == kind:
-            return label
-    return ""
 
 
 def _fetch_error(failure: Any) -> str:
