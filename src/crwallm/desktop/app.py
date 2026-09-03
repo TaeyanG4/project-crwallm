@@ -15,6 +15,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from crwallm import ui
 from crwallm.desktop.bridge import Bridge
 
 __all__ = ["main", "run", "ui_root"]
@@ -28,14 +29,11 @@ MIN_SIZE = (720, 560)
 def ui_root() -> Path:
     """Where index.html lives, whether run from source or from a build.
 
-    PyInstaller unpacks data files into ``sys._MEIPASS`` and leaves
-    ``__file__`` pointing inside the frozen archive, so the ordinary answer is
-    wrong in exactly the build that matters.
+    Kept as a name here because it reads better at the call site below, but
+    the page is no longer the desktop's own - the browser serves the same
+    files, so they live in ``crwallm.ui`` and both hosts ask it.
     """
-    bundle = getattr(sys, "_MEIPASS", None)
-    if bundle:
-        return Path(bundle) / "crwallm" / "desktop" / "ui"
-    return Path(__file__).resolve().parent / "ui"
+    return ui.root()
 
 
 _FROM_ICON = False

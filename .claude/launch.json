@@ -2,10 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "crwallm-web",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--prefix", "web"],
-      "port": 3000
+      "name": "crwallm",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "crwallm", "serve"],
+      "port": 8000
     }
   ]
 }

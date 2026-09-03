@@ -16,6 +16,7 @@ const state = {
   url: "",
   columns: [],
   rows: [],
+  total: 0,
 };
 
 /* Python calls this to report progress. */
@@ -63,12 +64,89 @@ function toast(message, bad = false) {
   toastTimer = setTimeout(() => (el.hidden = true), 4000);
 }
 
-/** The API is not there until pywebview has injected it. */
-function api() {
-  if (!window.pywebview || !window.pywebview.api) {
-    throw new Error("아직 준비 중입니다. 잠시 후 다시 시도해주세요.");
+/* ------------------------------------------------------------- 두 개의 집 */
+
+/*
+ * The same page runs in the desktop window and in a browser. In the window
+ * pywebview injects `window.pywebview.api`; in a browser there is a server on
+ * the same origin. Both answer the same four verbs, so everything below this
+ * point is written once and does not know which one it got.
+ *
+ * The desktop is checked first and by presence, not by protocol. Guessing
+ * from `location.protocol === "file:"` describes how the page was loaded,
+ * which is not the question being asked.
+ */
+
+/** One browser tab's worth of work, so two tabs do not overwrite each other. */
+const SID = (() => {
+  try {
+    const kept = sessionStorage.getItem("crwallm-sid");
+    if (kept) return kept;
+    const made = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    sessionStorage.setItem("crwallm-sid", made);
+    return made;
+  } catch {
+    return Math.random().toString(36).slice(2);
   }
-  return window.pywebview.api;
+})();
+
+async function post(path, body) {
+  const response = await fetch(`/api/ui/${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CRWALLM-Token": window.CRWALLM_TOKEN || "",
+    },
+    body: JSON.stringify({ sid: SID, ...body }),
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null);
+    throw new Error((detail && detail.detail) || `서버가 응답하지 않습니다 (${response.status}).`);
+  }
+  return response.json();
+}
+
+const http = {
+  look: (url) => post("look", { url }),
+  collect: (url, picks, options) =>
+    post("collect", { url, picks, max_pages: (options && options.max_pages) || 1 }),
+  stop: () => post("stop", {}),
+  /* A browser has no save dialog, so the file comes back as a download and
+   * the browser asks where. Same verb, same result, different machinery. */
+  async save() {
+    const response = await fetch("/api/ui/save", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CRWALLM-Token": window.CRWALLM_TOKEN || "",
+      },
+      body: JSON.stringify({ sid: SID }),
+    });
+    if (!response.ok) {
+      const detail = await response.json().catch(() => null);
+      return { ok: false, error: (detail && detail.detail) || "저장하지 못했습니다." };
+    }
+    const blob = await response.blob();
+    const name =
+      /filename\*?=(?:UTF-8'')?"?([^";]+)/i.exec(
+        response.headers.get("content-disposition") || "",
+      )?.[1] || "crwallm.csv";
+    const href = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = href;
+    link.download = decodeURIComponent(name);
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(href);
+    return { ok: true, rows: state.total };
+  },
+};
+
+function api() {
+  if (window.pywebview && window.pywebview.api) return window.pywebview.api;
+  if (window.CRWALLM_TOKEN !== undefined) return http;
+  throw new Error("아직 준비 중입니다. 잠시 후 다시 시도해주세요.");
 }
 
 /* ------------------------------------------------------------- ① 살펴보기 */
@@ -179,6 +257,7 @@ async function collect() {
       return;
     }
     state.rows = out.rows;
+    state.total = out.total;
     renderResults(out);
     show("result");
   } catch (err) {

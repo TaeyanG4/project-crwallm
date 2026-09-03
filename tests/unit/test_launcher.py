@@ -122,7 +122,7 @@ SPEC = (ROOT / "packaging" / "crwallm.spec").read_text(encoding="utf-8")
 def test_the_build_puts_the_screen_where_the_app_looks_for_it() -> None:
     """Two halves of one path, written in two files.
 
-    ``ui_root`` builds ``<bundle>/crwallm/desktop/ui`` and the spec decides
+    ``ui_root`` builds ``<bundle>/crwallm/ui`` and the spec decides
     where PyInstaller unpacks it. Disagree and the packaged app opens a window
     onto nothing - no error, no console, a blank white rectangle.
     """
@@ -134,7 +134,7 @@ def test_the_build_puts_the_screen_where_the_app_looks_for_it() -> None:
         del desktop_app.sys._MEIPASS  # type: ignore[attr-defined]
 
     relative = inside.relative_to(Path(frozen)).as_posix()
-    assert relative == "crwallm/desktop/ui"
+    assert relative == "crwallm/ui"
     assert f'"{relative}"' in SPEC, (
         f"ui_root() reads {relative} out of the bundle; the spec must put it there"
     )

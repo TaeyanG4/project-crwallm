@@ -123,8 +123,11 @@ def serve() -> None:
 @app.command()
 def up(
     port: Annotated[int, typer.Option("--port", help="API port")] = 8000,
-    ui_port: Annotated[int, typer.Option("--ui-port")] = 3000,
-    ui: Annotated[bool, typer.Option("--ui/--no-ui", help="Also start the web UI")] = True,
+    ui_port: Annotated[int, typer.Option("--ui-port", help="Port for --web")] = 3000,
+    web: Annotated[
+        bool,
+        typer.Option("--web", help="Also start the older Next.js app (needs Node)"),
+    ] = False,
     worker_too: Annotated[
         bool, typer.Option("--worker/--no-worker", help="Also start a crawl worker")
     ] = True,
@@ -138,12 +141,17 @@ def up(
         ),
     ] = False,
 ) -> None:
-    """Start the API, a worker and the web UI together.
+    """Start the API, its page and a worker together.
 
-    The tool needs all three: the UI submits jobs to the API and the worker is
-    what runs them, so a UI without a worker looks broken in a way nothing on
-    screen explains. Three terminals in the right order is a setup step
-    disguised as a design.
+    One port. The page the desktop window shows is served by the API itself,
+    so there is no second server, no proxy and no Node - open the API's own
+    address and it is there.
+
+    The worker is what actually runs queued jobs, so it comes up too: a UI
+    without one looks broken in a way nothing on screen explains.
+
+    --web additionally starts the older Next.js app, which is where job
+    history, recipes and the chat window still live.
 
     Ctrl-C stops everything.
     """
@@ -153,7 +161,7 @@ def up(
         run_up(
             port=port,
             ui_port=ui_port,
-            with_ui=ui,
+            with_web=web,
             with_worker=worker_too,
             open_browser=open_browser,
             launcher=launcher,

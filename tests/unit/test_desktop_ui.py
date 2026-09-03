@@ -19,7 +19,7 @@ from pathlib import Path
 
 from crwallm.desktop.bridge import Bridge
 
-UI = Path(__file__).resolve().parents[2] / "src" / "crwallm" / "desktop" / "ui"
+UI = Path(__file__).resolve().parents[2] / "src" / "crwallm" / "ui"
 
 HTML = (UI / "index.html").read_text(encoding="utf-8")
 JS = (UI / "app.js").read_text(encoding="utf-8")

@@ -27,7 +27,7 @@ ROOT = HERE.parent
 datas = [
     # ui_root() looks here when frozen. If this mapping and that function
     # disagree the window opens on a blank page, so they are one edit apart.
-    (str(ROOT / "src" / "crwallm" / "desktop" / "ui"), "crwallm/desktop/ui"),
+    (str(ROOT / "src" / "crwallm" / "ui"), "crwallm/ui"),
     # tldextract falls back to a network fetch of the public suffix list when
     # its snapshot is missing - on a machine with no internet, or a site that
     # blocks it, every domain check would then fail at the worst moment.

@@ -100,6 +100,9 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S", "B"]
+# The build script runs this interpreter and the binary it just produced, with
+# argument lists it wrote itself. There is no untrusted input to check.
+"packaging/**" = ["S603"]
 # The network backend implements httpcore's interface verbatim; its
 # timeout parameter is not ours to redesign into asyncio.timeout.
 "src/crwallm/crawler/fetching/pinning.py" = ["ASYNC109"]

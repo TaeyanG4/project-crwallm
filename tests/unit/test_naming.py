@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from crwallm.desktop.naming import FALLBACK, name_columns, name_for
+from crwallm.services.naming import FALLBACK, name_columns, name_for
 
 
 class TestFromTheMarkup:

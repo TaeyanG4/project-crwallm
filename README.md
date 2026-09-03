@@ -153,35 +153,55 @@ crwallm crawl https://quotes.toscrape.com/ --recipe quotes --follow --max-pages 
 | 레시피 만들기 | `crwallm recipe adapt <name> --url <url>` | — |
 | 한 번 돌려보기 | `crwallm crawl <url> --recipe <name>` | — |
 | 사이트 전체 훑기 | `crwallm spider <url> --recipe <name>` | — |
+| 브라우저에서 같은 화면 | `crwallm serve` → `localhost:8000` | — |
 | 백그라운드로 돌리기 | `crwallm jobs submit ...` + `crwallm worker` | 필요 |
 | 데이터 꺼내기 | `crwallm jobs export <id> -f csv -o out.csv` | 필요 |
-| 웹 UI | `crwallm up` | 필요 |
+| 잡 이력·레시피·대화 | `crwallm up --web` | 필요 |
 
 Docker가 필요한 줄은 셋뿐입니다. 이력을 남기는 일 — 잡 큐, 재시도,
 나중에 다시 꺼내보기 — 만 데이터베이스를 씁니다. 나머지는 켜지 않습니다.
 
-## 웹 UI
+## 화면은 하나, 여는 곳은 둘
 
-창으로 되는 일이면 창을 쓰세요. 웹 UI는 창에 없는 것 — 잡 이력, 재시도,
-여러 크롤 동시 운영 — 이 필요할 때만입니다.
+**창과 브라우저가 같은 화면입니다.** HTML 한 벌을 두 곳에서 띄웁니다.
 
 ```bash
-crwallm up
+crwallm serve        # 그리고 localhost:8000 을 엽니다
 ```
 
-세 프로세스가 필요합니다 — API, 잡을 실제로 돌리는 워커, UI. `up`이 셋을
-함께 띄우고, 여기서 처음으로 Docker를 켭니다. **워커 없이는 UI가 잡을 큐에
-넣고 아무 일도 일어나지 않는데, 화면에는 그 이유가 나오지 않습니다.**
+```bash
+crwallm desktop      # 같은 화면을 창으로
+```
+
+창에서는 `window.pywebview.api`로, 브라우저에서는 같은 출처의 `/api/ui/*`로
+파이썬을 부릅니다. 어느 쪽이든 [services/quick.py](src/crwallm/services/quick.py)
+하나를 지나가니 두 화면이 어긋날 여지가 없습니다.
+
+**포트는 하나입니다.** 화면을 API가 직접 내보내므로 앞단에 프록시도, Node도,
+두 번째 서버도 없습니다. 같은 출처라 CORS 판단도 필요 없습니다.
+
+## 예전 웹 UI
+
+잡 이력, 레시피 목록, 대화창은 아직 Next.js 앱에만 있습니다.
+
+```bash
+crwallm up --web
+```
+
+API·워커·Next.js를 함께 띄우고, **여기서 처음으로 Docker와 Node가 필요해집니다.**
+`--web` 없이 `crwallm up`을 부르면 API와 워커만 뜨고 화면은 `localhost:8000`
+입니다. **워커 없이는 UI가 잡을 큐에 넣고 아무 일도 일어나지 않는데, 화면에는
+그 이유가 나오지 않습니다.**
 
 따로 띄우려면:
 
 ```bash
-crwallm serve                      # API (127.0.0.1:8000)
+crwallm serve                      # API + 화면 (127.0.0.1:8000)
 crwallm worker                     # 워커
-npm run dev --prefix web           # UI (localhost:3000)
+npm run dev --prefix web           # 예전 웹 UI (localhost:3000)
 ```
 
-세 화면입니다.
+예전 웹 UI는 세 화면입니다.
 
 - **대화** — "이 URL에서 제목이랑 가격 뽑아줘". 모델이 페이지를 살펴보고,
   레시피를 만들고, 크롤을 큐에 넣습니다. 각 단계가 카드로 보입니다.

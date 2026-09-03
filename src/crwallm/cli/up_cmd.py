@@ -314,12 +314,17 @@ def up(
     port: int = 8000,
     ui_port: int = 3000,
     *,
-    with_ui: bool = True,
+    with_web: bool = False,
     with_worker: bool = True,
     open_browser: bool = True,
     launcher: bool = False,
 ) -> int:
-    """Run the API, the worker and the UI until interrupted."""
+    """Run the API, the worker and the UI until interrupted.
+
+    The UI is the API's own page now, on the API's own port, so "the UI" costs
+    no extra process and no Node. ``with_web`` starts the older Next.js app
+    beside it, which is the only thing here that needs either.
+    """
     from crwallm.config import get_settings
 
     settings = get_settings()
@@ -347,15 +352,15 @@ def up(
     web = Path.cwd() / WEB_DIR
     npm = shutil.which("npm")
 
-    if with_ui:
+    if with_web:
         if not web.exists():
-            _say("ui", f"no {WEB_DIR}/ here; skipping the UI")
-            with_ui = False
+            _say("web", f"no {WEB_DIR}/ here; skipping it")
+            with_web = False
         elif npm is None:
-            _say("ui", "npm is not on PATH; skipping the UI (the API still runs)")
-            with_ui = False
+            _say("web", "npm is not on PATH; skipping it (everything else still runs)")
+            with_web = False
         elif not _ensure_web_deps(web, npm):
-            with_ui = False
+            with_web = False
 
     supervisor = Supervisor()
     stop_requested = threading.Event()
@@ -402,23 +407,28 @@ def up(
         if with_worker:
             supervisor.start("worker", [sys.executable, "-m", "crwallm.cli.main", "worker"])
 
-        if with_ui and npm is not None:
+        # The window's page is served by the API itself, on the API's port.
+        # That is the whole of the UI unless someone asks for the older
+        # Next.js one, which is the only thing here that needs Node.
+        _say("ui", f"http://{host}:{port}")
+
+        if with_web and npm is not None:
             supervisor.start(
-                "ui",
+                "web",
                 [npm, "run", "dev", "--", "--port", str(ui_port)],
                 cwd=web,
                 # Next prints a banner and a compile line per route; the
                 # useful part is the URL, which the line below already gives.
             )
-            _say("ui", f"http://localhost:{ui_port}")
+            _say("web", f"http://localhost:{ui_port}  (jobs, recipes, chat)")
 
         typer.echo("")
         typer.secho("  ready — Ctrl-C to stop everything", fg=typer.colors.GREEN, bold=True)
         typer.echo("")
 
-        if open_browser and with_ui:
-            # A moment for Next's first compile, then the page the user wants.
-            _open_later(f"http://localhost:{ui_port}/chat")
+        if open_browser:
+            landing = f"http://localhost:{ui_port}/chat" if with_web else f"http://{host}:{port}/"
+            _open_later(landing)
 
         while not stop_requested.is_set():
             exited = supervisor.poll()
