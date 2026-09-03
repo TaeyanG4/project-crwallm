@@ -227,3 +227,170 @@ button:disabled { opacity: 0.45; cursor: default; }
   box-shadow: 0 6px 22px rgba(0, 0, 0, 0.2);
 }
 .toast.bad { background: var(--bad); }
+
+/* --- navigation ---------------------------------------------------------- */
+
+nav {
+  display: flex;
+  gap: 4px;
+  margin-top: 14px;
+  border-bottom: 1px solid var(--line);
+}
+.tab {
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  padding: 9px 16px;
+  font-size: 16px;
+  color: var(--ink-soft);
+}
+.tab:hover:not(.on) { background: none; color: var(--ink); }
+.tab.on {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+h3 { font-size: 16px; margin: 18px 0 8px; }
+
+input[type="text"].narrow { flex: 0 1 200px; }
+input[type="number"].tiny {
+  width: 90px;
+  padding: 8px 10px;
+  font-size: 16px;
+  font-family: inherit;
+  border: 1.5px solid var(--line);
+  border-radius: 8px;
+}
+
+/* --- chips --------------------------------------------------------------- */
+
+.chip {
+  display: inline-block;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 2px 11px;
+  background: var(--ground);
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+.chip-running, .chip-queued { background: #e6efff; color: #1e40af; }
+.chip-completed, .chip-active { background: #e6f6ec; color: var(--ok); }
+.chip-failed { background: #fdeaea; color: var(--bad); }
+.chip-cancelled, .chip-deprecated { background: var(--ground); color: var(--ink-soft); }
+.chip-candidate { background: #fff4e0; color: #92400e; }
+
+/* --- job list and recipe list -------------------------------------------- */
+
+#jobs-table, #recipes-table, #recipe-fields {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 16px;
+}
+#jobs-table th, #recipes-table th, #recipe-fields th {
+  text-align: left;
+  font-size: 14px;
+  color: var(--ink-soft);
+  font-weight: 600;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  background: var(--paper);
+}
+#jobs-table td, #recipes-table td, #recipe-fields td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#jobs-table tr:last-child td,
+#recipes-table tr:last-child td,
+#recipe-fields tr:last-child td { border-bottom: none; }
+#jobs-table button, #recipes-table button { padding: 6px 14px; font-size: 15px; }
+
+/* --- the event feed ------------------------------------------------------ */
+
+.feed-title { margin-top: 20px; }
+.feed {
+  max-height: 34vh;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 4px;
+  font-size: 15px;
+}
+.feed-line {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 4px 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.feed-line:nth-child(even) { background: #fafafa; }
+.feed-tag {
+  flex: 0 0 auto;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  background: var(--ground);
+  border-radius: 5px;
+  padding: 1px 8px;
+}
+
+/* --- chat ---------------------------------------------------------------- */
+
+.chat-card { display: flex; flex-direction: column; gap: 14px; }
+.chat-log {
+  min-height: 40vh;
+  max-height: 58vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-right: 4px;
+}
+.bubble {
+  max-width: 78%;
+  padding: 11px 15px;
+  border-radius: 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.bubble.self {
+  align-self: flex-end;
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-bottom-right-radius: 4px;
+}
+.bubble.other {
+  align-self: flex-start;
+  background: var(--ground);
+  border-bottom-left-radius: 4px;
+}
+.thinking {
+  align-self: flex-start;
+  color: var(--ink-soft);
+  font-size: 15px;
+  font-style: italic;
+  padding-left: 4px;
+}
+/* A step is a claim about what happened, so it is left grey until the answer
+ * arrives and then coloured by it. Green on start would be a guess. */
+.step {
+  align-self: stretch;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 13px;
+  background: var(--paper);
+}
+.step.ok  { border-left-color: var(--ok); }
+.step.bad { border-left-color: var(--bad); }
+.step-title { font-weight: 600; font-size: 15px; }
+.step-detail { color: var(--ink-soft); font-size: 15px; overflow-wrap: anywhere; }

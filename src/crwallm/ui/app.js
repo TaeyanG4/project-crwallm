@@ -1,9 +1,12 @@
 /*
- * Three steps, one at a time.
+ * 모으기: three steps, one at a time.
  *
  * Everything the person does maps to one call on the Python side: look,
  * collect, save, stop. There is no client-side model of a crawl, no recipe
  * object, no job. What is on screen is what exists.
+ *
+ * This is the one view that works in both hosts, because it is the only one
+ * that needs nothing running. `api()` in api.js decides which host answered.
  *
  * Errors are shown where the mistake was made - a bad address under the
  * address box, not in a corner - because that is where someone is looking
@@ -62,91 +65,6 @@ function toast(message, bad = false) {
   el.hidden = false;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (el.hidden = true), 4000);
-}
-
-/* ------------------------------------------------------------- 두 개의 집 */
-
-/*
- * The same page runs in the desktop window and in a browser. In the window
- * pywebview injects `window.pywebview.api`; in a browser there is a server on
- * the same origin. Both answer the same four verbs, so everything below this
- * point is written once and does not know which one it got.
- *
- * The desktop is checked first and by presence, not by protocol. Guessing
- * from `location.protocol === "file:"` describes how the page was loaded,
- * which is not the question being asked.
- */
-
-/** One browser tab's worth of work, so two tabs do not overwrite each other. */
-const SID = (() => {
-  try {
-    const kept = sessionStorage.getItem("crwallm-sid");
-    if (kept) return kept;
-    const made = Math.random().toString(36).slice(2) + Date.now().toString(36);
-    sessionStorage.setItem("crwallm-sid", made);
-    return made;
-  } catch {
-    return Math.random().toString(36).slice(2);
-  }
-})();
-
-async function post(path, body) {
-  const response = await fetch(`/api/ui/${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-CRWALLM-Token": window.CRWALLM_TOKEN || "",
-    },
-    body: JSON.stringify({ sid: SID, ...body }),
-  });
-  if (!response.ok) {
-    const detail = await response.json().catch(() => null);
-    throw new Error((detail && detail.detail) || `서버가 응답하지 않습니다 (${response.status}).`);
-  }
-  return response.json();
-}
-
-const http = {
-  look: (url) => post("look", { url }),
-  collect: (url, picks, options) =>
-    post("collect", { url, picks, max_pages: (options && options.max_pages) || 1 }),
-  stop: () => post("stop", {}),
-  /* A browser has no save dialog, so the file comes back as a download and
-   * the browser asks where. Same verb, same result, different machinery. */
-  async save() {
-    const response = await fetch("/api/ui/save", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-CRWALLM-Token": window.CRWALLM_TOKEN || "",
-      },
-      body: JSON.stringify({ sid: SID }),
-    });
-    if (!response.ok) {
-      const detail = await response.json().catch(() => null);
-      return { ok: false, error: (detail && detail.detail) || "저장하지 못했습니다." };
-    }
-    const blob = await response.blob();
-    const name =
-      /filename\*?=(?:UTF-8'')?"?([^";]+)/i.exec(
-        response.headers.get("content-disposition") || "",
-      )?.[1] || "crwallm.csv";
-    const href = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = href;
-    link.download = decodeURIComponent(name);
-    document.body.append(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(href);
-    return { ok: true, rows: state.total };
-  },
-};
-
-function api() {
-  if (window.pywebview && window.pywebview.api) return window.pywebview.api;
-  if (window.CRWALLM_TOKEN !== undefined) return http;
-  throw new Error("아직 준비 중입니다. 잠시 후 다시 시도해주세요.");
 }
 
 /* ------------------------------------------------------------- ① 살펴보기 */
@@ -327,7 +245,9 @@ async function save() {
       toast(result.error, true);
       return;
     }
-    toast(`${result.rows}건을 저장했습니다.`);
+    // The window knows how many it wrote; a browser download does not, so it
+    // says so rather than reporting "null건".
+    toast(result.rows == null ? "저장했습니다." : `${result.rows}건을 저장했습니다.`);
   } catch (err) {
     toast(String(err.message || err), true);
   }

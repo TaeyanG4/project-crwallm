@@ -79,7 +79,7 @@ uv sync
 | 페이지 모으고 엑셀로 저장 | — | 없음 |
 | 컬럼 이름 자동으로 붙이기 | Ollama | `crwallm setup --no-browser` |
 | 스크립트로 그려지는 페이지 | Chromium | `crwallm setup --no-llm` |
-| 잡 이력·재시도·웹 UI | Docker, Node 20+ | `crwallm setup` |
+| 잡 이력·재시도 (작업 탭) | Docker | `crwallm setup --no-llm --no-browser` |
 
 `setup`은 **부를 때만** 돕니다. 아무것도 부르지 않으면 아무것도 설치되지
 않고, 창은 그대로 열립니다.
@@ -157,20 +157,19 @@ crwallm crawl https://quotes.toscrape.com/ --recipe quotes --follow --max-pages 
 | 레시피 만들기 | `crwallm recipe adapt <name> --url <url>` | — |
 | 한 번 돌려보기 | `crwallm crawl <url> --recipe <name>` | — |
 | 사이트 전체 훑기 | `crwallm spider <url> --recipe <name>` | — |
-| 브라우저에서 같은 화면 | `crwallm serve` → `localhost:8000` | — |
+| 브라우저에서 같은 화면 | `crwallm up` → `localhost:8000` | 작업 탭만 |
 | 백그라운드로 돌리기 | `crwallm jobs submit ...` + `crwallm worker` | 필요 |
 | 데이터 꺼내기 | `crwallm jobs export <id> -f csv -o out.csv` | 필요 |
-| 잡 이력·레시피·대화 | `crwallm up --web` | 필요 |
 
-Docker가 필요한 줄은 셋뿐입니다. 이력을 남기는 일 — 잡 큐, 재시도,
-나중에 다시 꺼내보기 — 만 데이터베이스를 씁니다. 나머지는 켜지 않습니다.
+이력을 남기는 일 — 잡 큐, 재시도, 나중에 다시 꺼내보기 — 만 데이터베이스를
+씁니다. 나머지는 Docker를 켜지 않습니다.
 
 ## 화면은 하나, 여는 곳은 둘
 
 **창과 브라우저가 같은 화면입니다.** HTML 한 벌을 두 곳에서 띄웁니다.
 
 ```bash
-crwallm serve        # 그리고 localhost:8000 을 엽니다
+crwallm up           # API + 워커 + 화면, 그리고 localhost:8000
 ```
 
 ```bash
@@ -184,35 +183,29 @@ crwallm desktop      # 같은 화면을 창으로
 **포트는 하나입니다.** 화면을 API가 직접 내보내므로 앞단에 프록시도, Node도,
 두 번째 서버도 없습니다. 같은 출처라 CORS 판단도 필요 없습니다.
 
+### 화면 네 개
+
+| | 하는 일 | 필요한 것 |
+|---|---|---|
+| **모으기** | 주소 → 이름 확인 → 엑셀 | 없음 |
+| **작업** | 큐에 넣고, 진행 상황을 라이브로 보고, 중지·재실행·내보내기 | Docker |
+| **레시피** | 무엇이 있고 얼마나 잘 도는지. `active`는 주장, 옆 숫자가 근거 | 없음 |
+| **대화** | 문장으로 시키면 살펴보고·레시피 만들고·크롤을 걸어둠 | Ollama |
+
+**창에서는 모으기 하나만 나옵니다.** 창 뒤에는 서버가 없어서 잡 큐도, 모델도
+없기 때문입니다. 되지 않는 탭을 보여주고 눌렀을 때 실패하는 쪽이 더 나쁜
+답이라, 아예 내놓지 않습니다.
+
 ## 예전 웹 UI
 
-잡 이력, 레시피 목록, 대화창은 아직 Next.js 앱에만 있습니다.
+같은 기능이 Next.js 앱에도 남아 있습니다. 위 화면으로 되는 일이면 그쪽을
+쓸 이유는 없습니다.
 
 ```bash
 crwallm up --web
 ```
 
-API·워커·Next.js를 함께 띄우고, **여기서 처음으로 Docker와 Node가 필요해집니다.**
-`--web` 없이 `crwallm up`을 부르면 API와 워커만 뜨고 화면은 `localhost:8000`
-입니다. **워커 없이는 UI가 잡을 큐에 넣고 아무 일도 일어나지 않는데, 화면에는
-그 이유가 나오지 않습니다.**
-
-따로 띄우려면:
-
-```bash
-crwallm serve                      # API + 화면 (127.0.0.1:8000)
-crwallm worker                     # 워커
-npm run dev --prefix web           # 예전 웹 UI (localhost:3000)
-```
-
-예전 웹 UI는 세 화면입니다.
-
-- **대화** — "이 URL에서 제목이랑 가격 뽑아줘". 모델이 페이지를 살펴보고,
-  레시피를 만들고, 크롤을 큐에 넣습니다. 각 단계가 카드로 보입니다.
-- **크롤** — 실행 목록과 상세. 이벤트가 라이브로 흐르고, 중지·재실행·
-  CSV/JSONL 내보내기가 있습니다.
-- **레시피** — 무엇이 있고 얼마나 잘 동작하는지. `active`는 주장이고
-  옆의 측정치가 그 근거입니다.
+Next.js를 함께 띄우고 **여기서 Node가 필요해집니다.**
 
 ## 상태
 
