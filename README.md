@@ -86,21 +86,25 @@ uv sync
 
 ### `crwallm`을 어떻게 부르나
 
-명령은 가상환경 안에 설치되므로 그냥 `crwallm`을 치면 **찾지 못합니다.**
-둘 중 하나를 쓰세요.
+명령은 가상환경 안에 설치되므로 **새 터미널에서 그냥 `crwallm`을 치면
+`command not found`가 납니다.** 셋 중 아무거나 쓰세요.
 
 ```bash
-uv run crwallm <명령>              # 활성화 없이. 어디서나 동작
+./crwallm serve                    # 저장소 안에서. 준비 필요 없음
 ```
 
 ```bash
-source .venv/Scripts/activate      # Windows (Git Bash) — 한 번만
+uv run crwallm serve               # 어디서나 동작
+```
+
+```bash
+source .venv/Scripts/activate      # Windows (Git Bash) — 한 번만 해두면
 source .venv/bin/activate          # macOS / Linux
-crwallm <명령>
+crwallm serve                      # 그 뒤로는 이름만으로
 ```
 
-아래 예제는 `crwallm`으로 적었습니다. 활성화하지 않았다면 앞에 `uv run`을
-붙이세요.
+아래 예제는 `crwallm`으로 적었습니다. 활성화하지 않았다면 `./`나 `uv run`을
+앞에 붙이세요.
 
 ## 바로 써보기
 

@@ -3,10 +3,11 @@
 이 문서는 **무엇을 어떻게 하는지**를 다룹니다.
 설계 근거는 [docs/](docs/00_INDEX.md), 개발 환경은 [DEVELOPMENT.md](DEVELOPMENT.md).
 
-> `crwallm` 명령은 가상환경 안에 있습니다. 활성화하지 않았다면 아래 모든
-> 예제 앞에 `uv run`을 붙이세요 — `uv run crwallm inspect ...`.
-> 한 번 활성화해두려면 `source .venv/Scripts/activate` (Windows) 또는
-> `source .venv/bin/activate`.
+> `crwallm` 명령은 가상환경 안에 있습니다. 새 터미널에서 그냥 치면
+> `command not found`가 납니다. 저장소 안에서는 `./crwallm inspect ...`,
+> 어디서나 쓰려면 `uv run crwallm inspect ...`.
+> 한 번 활성화해두면 이름만으로 됩니다 — `source .venv/Scripts/activate`
+> (Windows) 또는 `source .venv/bin/activate`.
 
 - [0. 창](#0-창)
 - [조작 수준 네 가지](#조작-수준-네-가지)

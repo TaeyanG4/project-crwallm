@@ -157,6 +157,24 @@ def test_the_installer_carries_a_byte_order_mark() -> None:
     )
 
 
+def test_the_cli_can_be_run_without_activating_anything() -> None:
+    """`crwallm serve` in a fresh shell is `command not found`, every time.
+
+    The command lives in .venv, which is not on PATH until it is activated -
+    correct, and also the first thing everybody trips over. ./crwallm forwards
+    to `uv run crwallm`, which needs no preparation at all.
+    """
+    shim = ROOT / "crwallm"
+
+    assert shim.exists(), "./crwallm is what the docs tell people to type"
+    text = shim.read_text(encoding="utf-8")
+    assert text.startswith("#!"), "no shebang means bash will not run it"
+    assert "uv run crwallm" in text
+    # No `cd`: uv walks up to find the project, and moving would re-root every
+    # relative path the caller passed, so `-o out.csv` would land elsewhere.
+    assert "\ncd " not in text
+
+
 def test_the_terminal_path_stays_quiet(monkeypatch: pytest.MonkeyPatch) -> None:
     """``crwallm desktop`` in a shell must not raise a dialog: there is a
     console right there, and a modal box in the middle of a shell session is

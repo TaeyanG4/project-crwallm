@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+#
+# The CLI, without activating anything.
+#
+#     ./crwallm serve
+#     ./crwallm inspect https://quotes.toscrape.com/
+#
+# `crwallm` on its own does not work in a fresh shell and it is not supposed
+# to: the command is installed inside .venv, which is not on PATH until you
+# activate it. That is correct and it is also the thing everyone trips over
+# first, so this is here to make the correct thing one keystroke instead of a
+# paragraph.
+#
+# No `cd` to the script's directory on purpose. uv finds the project by
+# walking up from wherever you are, and changing directory would quietly
+# re-root every relative path you passed - `-o out.csv` would land somewhere
+# you did not ask for.
+
+if ! command -v uv >/dev/null 2>&1; then
+    echo "uv is not installed." >&2
+    echo >&2
+    echo "  powershell -c \"irm https://astral.sh/uv/install.ps1 | iex\"" >&2
+    exit 1
+fi
+
+exec uv run crwallm "$@"
