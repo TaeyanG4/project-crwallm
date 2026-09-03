@@ -136,6 +136,27 @@ def test_hidden_beats_the_layout_rules() -> None:
     )
 
 
+def test_every_colour_lives_in_one_block() -> None:
+    """A theme change has to be a change to :root and nothing else.
+
+    Striped rows were ``#fafafa`` because that worked on white; on a dark page
+    the same literal is a bright band. Every shadow, veil and chip tint had the
+    same problem, and each one is invisible until somebody looks at the screen
+    - which is exactly the kind of thing this file exists to catch instead.
+    """
+    root = re.search(r":root\s*\{(.*?)\}", CSS, re.DOTALL)
+    assert root, "no :root token block"
+
+    body = CSS.replace(root.group(0), "")
+    body = re.sub(r"/\*.*?\*/", "", body, flags=re.DOTALL)
+    literals = re.findall(r"#[0-9a-fA-F]{3,8}|rgba?\([^)]*\)", body)
+
+    assert not literals, (
+        f"colours outside :root: {sorted(set(literals))}. "
+        "Give each one a token, or the next theme change leaves it behind."
+    )
+
+
 def without_comments(source: str) -> str:
     """Explanations are not instructions to the browser."""
     return re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)

@@ -102,7 +102,9 @@ def run(*, debug: bool = False, allow_local: bool = False) -> int:
         height=HEIGHT,
         min_size=MIN_SIZE,
         text_select=True,
-        background_color="#f4f4f5",
+        # --ground from ui/style.css. WebView2 paints this before the page
+        # arrives, so a mismatch is a white flash on every launch.
+        background_color="#141417",
     )
 
     try:

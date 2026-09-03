@@ -5,23 +5,47 @@
  * developer tool - dense tables, small grey text, everything visible at once -
  * are the opposite of what this needs.
  *
- * Light only, and deliberately: a dark theme is a preference, and a person who
- * has never changed a setting should not be shown one they did not pick.
+ * Dark, and every colour comes from a token below. Nothing further down names
+ * a colour of its own: a hard-coded #fafafa for striped rows is invisible on
+ * white and a bright band on black, and the same is true of every shadow and
+ * every chip. Changing the theme has to be changing this block and nothing
+ * else, or the next change leaves half the page behind.
  */
 
 :root {
-  --ink: #1a1a1a;
-  --ink-soft: #5a5a5a;
-  --line: #dcdcdc;
-  --paper: #ffffff;
-  --ground: #f4f4f5;
-  --accent: #1d4ed8;
-  --accent-ink: #ffffff;
-  --bad: #b91c1c;
-  --ok: #15803d;
+  --ink: #e8e8ea;
+  --ink-soft: #9a9aa2;
+  --line: #33333a;
+  --paper: #1c1c21;
+  --ground: #141417;
+  /* Lifted from #1d4ed8: the light-theme blue is too dark to read against a
+     dark ground, and an accent you have to lean in for is not an accent. */
+  --accent: #5b8cff;
+  --accent-ink: #10131c;
+  --bad: #ff8a8a;
+  --ok: #6ee7a0;
+
+  /* Row striping, overlays and shadows. On a light page these were literals
+     that happened to work; on a dark one they have to be stated. */
+  --stripe: #212127;
+  --veil: rgba(12, 12, 15, 0.78);
+  --shadow: rgba(0, 0, 0, 0.5);
+  --focus: rgba(91, 140, 255, 0.25);
+
+  --tint-info: #1b2a4a;
+  --tint-info-ink: #a8c4ff;
+  --tint-ok: #16321f;
+  --tint-bad: #3a1a1c;
+  --tint-warn: #3a2c14;
+  --tint-warn-ink: #f0c274;
 
   --radius: 10px;
   --gap: 16px;
+
+  /* Not decoration. Without it the browser draws checkboxes, number-input
+     spinners and scrollbars from the light palette, and they sit on the page
+     as bright white rectangles nothing in this file can reach. */
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -80,7 +104,7 @@ input[type="text"] {
 input[type="text"]:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(29, 78, 216, 0.14);
+  box-shadow: 0 0 0 3px var(--focus);
 }
 
 /* Big enough to hit without aiming. */
@@ -173,14 +197,14 @@ button:disabled { opacity: 0.45; cursor: default; }
   background: var(--ground);
   font-size: 14px;
 }
-#results tbody tr:nth-child(even) { background: #fafafa; }
+#results tbody tr:nth-child(even) { background: var(--stripe); }
 
 /* --- busy --------------------------------------------------------------- */
 
 .busy {
   position: fixed;
   inset: 0;
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--veil);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -191,7 +215,7 @@ button:disabled { opacity: 0.45; cursor: default; }
   border-radius: var(--radius);
   padding: 30px 40px;
   text-align: center;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.09);
+  box-shadow: 0 8px 30px var(--shadow);
   min-width: 280px;
 }
 .busy-card p { margin: 4px 0; }
@@ -224,7 +248,7 @@ button:disabled { opacity: 0.45; cursor: default; }
   padding: 13px 22px;
   border-radius: 8px;
   font-weight: 600;
-  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 6px 22px var(--shadow);
 }
 .toast.bad { background: var(--bad); }
 
@@ -275,11 +299,11 @@ input[type="number"].tiny {
   color: var(--ink-soft);
   white-space: nowrap;
 }
-.chip-running, .chip-queued { background: #e6efff; color: #1e40af; }
-.chip-completed, .chip-active { background: #e6f6ec; color: var(--ok); }
-.chip-failed { background: #fdeaea; color: var(--bad); }
+.chip-running, .chip-queued { background: var(--tint-info); color: var(--tint-info-ink); }
+.chip-completed, .chip-active { background: var(--tint-ok); color: var(--ok); }
+.chip-failed { background: var(--tint-bad); color: var(--bad); }
 .chip-cancelled, .chip-deprecated { background: var(--ground); color: var(--ink-soft); }
-.chip-candidate { background: #fff4e0; color: #92400e; }
+.chip-candidate { background: var(--tint-warn); color: var(--tint-warn-ink); }
 
 /* --- job list and recipe list -------------------------------------------- */
 
@@ -332,7 +356,7 @@ input[type="number"].tiny {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.feed-line:nth-child(even) { background: #fafafa; }
+.feed-line:nth-child(even) { background: var(--stripe); }
 .feed-tag {
   flex: 0 0 auto;
   font-size: 13px;
