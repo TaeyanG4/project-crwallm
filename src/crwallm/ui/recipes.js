@@ -6,13 +6,17 @@
  * never does, and that is the whole economics of the tool.
  *
  * Recipes are YAML files on disk, so this view needs no database - the only
- * screen besides 모으기 that works with Docker switched off. It is read-only
- * on purpose: writing one is `crwallm recipe adapt`, which measures what it
- * made and refuses to call it active without evidence, and a text box in a
- * browser cannot honestly do that.
+ * screen besides 모으기 that works with Docker switched off.
+ *
+ * **Making** one is still `crwallm recipe adapt`: it asks a model to name the
+ * columns, scores several candidates and takes minutes. **Proving** one is
+ * here, because that is a single fetch and a score with no model in it - and
+ * a screen that can list recipes but never check one turns 동작 확인됨 into a
+ * word nobody can verify. 활성화 re-measures first for the same reason: the
+ * numbers already in the file were true whenever they were taken.
  */
 
-const recipesState = { open: null };
+const recipesState = { open: null, busy: false };
 
 /* The three the schema actually defines. Guessed names were shown as-is until
  * a real list came back reading "candidate", which tells a Korean-speaking
@@ -101,6 +105,8 @@ async function openRecipe(name) {
   recipesState.open = name;
   $("recipe-detail").hidden = false;
   $("recipe-detail-title").textContent = name;
+  $("recipe-report").hidden = true;
+  $("recipe-detail-error").hidden = true;
 
   try {
     const recipe = await rest.get(`/api/recipes/${encodeURIComponent(name)}`);
@@ -154,3 +160,86 @@ $("recipe-close").addEventListener("click", () => {
   recipesState.open = null;
   $("recipe-detail").hidden = true;
 });
+
+
+/* ------------------------------------------------------- 확인하고 활성화 */
+
+/** Run the recipe against its sample page, or against that and then promote. */
+async function proveRecipe(promote) {
+  const name = recipesState.open;
+  if (!name || recipesState.busy) return;
+
+  recipesState.busy = true;
+  $("recipe-detail-error").hidden = true;
+  $("recipe-test").disabled = true;
+  $("recipe-activate").disabled = true;
+  busy(true, promote ? "다시 재보고 활성화하는 중…" : "지금도 되는지 재보는 중…");
+
+  try {
+    const verb = promote ? "activate" : "test";
+    const report = await rest.post(`/api/recipes/${encodeURIComponent(name)}/${verb}`, {});
+    renderReport(report, promote);
+    if (promote) {
+      toast(`${name}을(를) 활성화했습니다.`);
+      loadRecipes();
+    }
+  } catch (err) {
+    // A refusal is the interesting answer here, not an accident: it means the
+    // recipe did not earn the promotion, and the report above already says
+    // which number fell short.
+    $("recipe-detail-error").hidden = false;
+    $("recipe-detail-error").textContent = String(err.message || err);
+  } finally {
+    recipesState.busy = false;
+    $("recipe-test").disabled = false;
+    $("recipe-activate").disabled = false;
+    busy(false);
+  }
+}
+
+function renderReport(report, promoted) {
+  const box = $("recipe-report");
+  box.hidden = false;
+  box.className = `report ${report.passes ? "ok" : "bad"}`;
+  box.replaceChildren();
+
+  const headline = document.createElement("strong");
+  headline.textContent = report.passes
+    ? promoted
+      ? "활성화했습니다."
+      : "지금도 잘 됩니다."
+    : "기준에 못 미칩니다.";
+  box.append(headline);
+
+  const list = document.createElement("dl");
+  const rows = [
+    ["뽑은 건수", String(report.record_count)],
+    ["채움", `${Math.round((report.mean_fill || 0) * 100)}%`],
+    ["일관성", `${Math.round((report.consistency || 0) * 100)}%`],
+    ["점수", String(report.score)],
+    ["기준 페이지", report.sample_url || ""],
+  ];
+  if (!report.container_matched) {
+    rows.unshift(["반복 단위", "찾지 못했습니다 — 사이트가 바뀌었을 수 있습니다"]);
+  }
+  if (report.filtered_out) {
+    rows.push(["필터로 걸러짐", `${report.filtered_out}건`]);
+  }
+  // Per-field fill is the number that says *which* selector went stale, which
+  // is the whole reason to press the button after a site is restyled.
+  for (const [field, rate] of Object.entries(report.fill_rates || {})) {
+    rows.push([`　${field}`, `${Math.round(rate * 100)}%`]);
+  }
+
+  for (const [label, value] of rows) {
+    const dt = document.createElement("dt");
+    dt.textContent = label;
+    const dd = document.createElement("dd");
+    dd.textContent = value;
+    list.append(dt, dd);
+  }
+  box.append(list);
+}
+
+$("recipe-test").addEventListener("click", () => proveRecipe(false));
+$("recipe-activate").addEventListener("click", () => proveRecipe(true));

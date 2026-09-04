@@ -169,7 +169,7 @@ async function collect() {
   busy(true, many ? "여러 쪽을 모으는 중…" : "모으는 중…");
 
   try {
-    const out = await api().collect(state.url, picks, { max_pages: many ? 50 : 1 });
+    const out = await api().collect(state.url, picks, collectOptions(many));
     if (!out.ok) {
       toast(out.error, true);
       return;
@@ -251,6 +251,36 @@ async function save() {
   } catch (err) {
     toast(String(err.message || err), true);
   }
+}
+
+/** Everything the 자세한 설정 block can say, plus the one checkbox above it.
+ *
+ * The checkbox is the only control most people touch, so it stays in charge:
+ * off means the page you pasted and nothing else, whatever the page count in
+ * the advanced block says. Two controls that can contradict each other is one
+ * too many, and the visible one should win.
+ */
+function collectOptions(many) {
+  return {
+    max_pages: many ? num($("c-pages"), defaults.max_pages) : 1,
+    max_depth: many ? num($("c-depth"), defaults.max_depth) : 0,
+    follow_links: many,
+    fetch_mode: $("c-mode").value,
+    concurrency: num($("c-concurrency"), 4),
+    per_host: num($("c-concurrency"), 4),
+    interval_ms: num($("c-interval"), defaults.interval_ms),
+    scroll_rounds: num($("c-scroll"), 0),
+    include: lines($("c-include")),
+    exclude: lines($("c-exclude")),
+  };
+}
+
+/** Start the advanced block from 설정's defaults rather than from markup. */
+function applyCollectDefaults() {
+  $("c-pages").value = defaults.max_pages;
+  $("c-depth").value = defaults.max_depth;
+  $("c-mode").value = defaults.fetch_mode;
+  $("c-interval").value = defaults.interval_ms;
 }
 
 /* ------------------------------------------------------------------ wiring */

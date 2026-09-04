@@ -418,3 +418,224 @@ input[type="number"].tiny {
 .step.bad { border-left-color: var(--bad); }
 .step-title { font-weight: 600; font-size: 15px; }
 .step-detail { color: var(--ink-soft); font-size: 15px; overflow-wrap: anywhere; }
+
+/* --- explanations -------------------------------------------------------- */
+
+/*
+ * A <details>, not a paragraph. The explanation has to be reachable by
+ * somebody who does not know what the screen is for, and invisible to
+ * somebody who does - and it has to stay that way per person, which is what
+ * the open state in sessionStorage is for.
+ */
+.explain {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 12px 18px;
+  margin-bottom: var(--gap);
+  font-size: 16px;
+}
+.explain > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--accent);
+  list-style: none;
+}
+.explain > summary::-webkit-details-marker { display: none; }
+.explain > summary::before { content: "? "; font-weight: 700; }
+.explain[open] > summary { margin-bottom: 8px; }
+.explain p { color: var(--ink-soft); margin: 8px 0; }
+.explain code, .hint code {
+  background: var(--ground);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 0.92em;
+}
+
+/* --- forms --------------------------------------------------------------- */
+
+/*
+ * One grid for every form on the page. Each control carries its own label and
+ * its own line of help, because a number box called "동시 요청" with nothing
+ * beside it is a question, not a setting.
+ */
+.fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 14px 18px;
+  margin: 14px 0 4px;
+}
+.field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.field.wide { grid-column: 1 / -1; }
+.field > label { margin: 0; font-size: 15px; font-weight: 600; }
+.field .help { color: var(--ink-soft); font-size: 13.5px; line-height: 1.45; }
+
+.field input[type="text"],
+.field input[type="number"],
+.field select,
+.field textarea {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 16px;
+  font-family: inherit;
+  border: 1.5px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+}
+.field textarea { resize: vertical; line-height: 1.5; }
+select {
+  padding: 10px 12px;
+  font-size: 16px;
+  font-family: inherit;
+  border: 1.5px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+}
+.field input:focus, .field select:focus, .field textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus);
+}
+
+.row.actions { margin-top: 16px; align-items: center; }
+.row.actions .error { margin: 0; }
+
+/* --- collapsible advanced blocks ---------------------------------------- */
+
+.advanced {
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.advanced > summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--ink-soft);
+  list-style: none;
+}
+.advanced > summary::-webkit-details-marker { display: none; }
+.advanced > summary::before { content: "▸ "; }
+.advanced[open] > summary::before { content: "▾ "; }
+.advanced > summary:hover { color: var(--ink); }
+
+/* --- sub-tabs inside a card --------------------------------------------- */
+
+.subtabs {
+  display: flex;
+  gap: 4px;
+  margin: 18px 0 12px;
+  border-bottom: 1px solid var(--line);
+}
+.subtab {
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  padding: 7px 14px;
+  font-size: 15px;
+  color: var(--ink-soft);
+}
+.subtab:hover:not(.on) { background: none; color: var(--ink); }
+.subtab.on { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* --- the measurement report --------------------------------------------- */
+
+.report {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin: 14px 0;
+  font-size: 15px;
+}
+.report.ok { border-left-color: var(--ok); }
+.report.bad { border-left-color: var(--bad); }
+.report dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 8px 0 0; }
+.report dt { color: var(--ink-soft); }
+.report dd { margin: 0; }
+
+/* --- download progress --------------------------------------------------- */
+
+.pull { margin-top: 16px; }
+.bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--ground);
+  overflow: hidden;
+}
+.bar-fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.2s linear;
+}
+
+/* --- readiness ----------------------------------------------------------- */
+
+.health { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* --- settings key/value -------------------------------------------------- */
+
+#settings-table { width: 100%; border-collapse: collapse; font-size: 15px; }
+#settings-table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+#settings-table tr:last-child td { border-bottom: none; }
+#settings-table td:first-child { color: var(--ink-soft); width: 34%; white-space: nowrap; }
+
+#models-table, #models-available {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+}
+#models-table th, #models-available th {
+  text-align: left;
+  font-size: 14px;
+  color: var(--ink-soft);
+  font-weight: 600;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+#models-table td, #models-available td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+}
+#models-table tr:last-child td, #models-available tr:last-child td { border-bottom: none; }
+#models-table button, #models-available button { padding: 6px 14px; font-size: 15px; }
+
+#records-table, #pages-table { width: 100%; border-collapse: collapse; font-size: 15px; }
+#records-table th, #pages-table th {
+  text-align: left;
+  font-size: 14px;
+  color: var(--ink-soft);
+  font-weight: 600;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  background: var(--paper);
+}
+#records-table td, #pages-table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- narrow windows ------------------------------------------------------ */
+
+@media (max-width: 640px) {
+  body { padding: 18px 14px 40px; }
+  h1 { font-size: 24px; }
+  nav { overflow-x: auto; }
+  .row { flex-wrap: wrap; }
+  .fields { grid-template-columns: 1fr; }
+}

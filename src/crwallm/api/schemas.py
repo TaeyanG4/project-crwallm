@@ -186,6 +186,11 @@ class RecipeSummary(BaseModel):
     name: str
     version: int
     status: str
+    source: str
+    """Which of the seven extractors reads the records - css, jsonld,
+    microdata, embedded, feed, table or article. A screen that cannot show it
+    cannot explain why a recipe with no CSS selectors works."""
+
     source_url: str
     allowed_domains: list[str]
     container: str | None = None

@@ -8,8 +8,13 @@
 <body>
 
 <header>
-  <h1>모으기</h1>
-  <p id="subtitle">주소를 붙여넣으면 그 페이지에 무엇이 있는지 보여드립니다.</p>
+  <div class="row spread">
+    <div>
+      <h1>모으기</h1>
+      <p id="subtitle">주소를 붙여넣으면 그 페이지에 무엇이 있는지 보여드립니다.</p>
+    </div>
+    <div id="health" class="health" hidden></div>
+  </div>
   <!-- Only what this host can actually reach. The window has no server, so it
        has no job queue and no model; offering those tabs there would be a lie
        the person finds out about by clicking. -->
@@ -18,11 +23,20 @@
     <button type="button" class="tab" data-view="jobs">작업</button>
     <button type="button" class="tab" data-view="recipes">레시피</button>
     <button type="button" class="tab" data-view="chat">대화</button>
+    <button type="button" class="tab" data-view="settings">설정</button>
   </nav>
 </header>
 
 <!-- ============================================================ 모으기 -->
 <div id="view-collect">
+
+<details class="explain" id="explain-collect">
+  <summary>이 화면은 무엇인가요?</summary>
+  <p><strong>한 페이지에서 반복되는 것을 표로 만들어 엑셀로 저장합니다.</strong>
+    상품 목록, 글 목록, 검색 결과처럼 같은 모양이 여러 번 나오는 페이지에서 가장 잘 됩니다.</p>
+  <p>결과는 <strong>이 화면에만</strong> 있습니다. 창을 닫으면 사라지고, 저장한 파일만 남습니다.
+    나중에 다시 꺼내보거나 오래 걸리는 크롤을 걸어두려면 <strong>작업</strong> 탭을 쓰세요.</p>
+</details>
 
 <!-- ① 주소 -->
 <section id="step-url" class="card">
@@ -56,6 +70,56 @@
     </label>
     <button id="collect" class="primary">모으기</button>
   </div>
+
+  <details class="advanced">
+    <summary>자세한 설정</summary>
+    <div class="fields">
+      <div class="field">
+        <label for="c-pages">몇 쪽까지</label>
+        <input id="c-pages" type="number" min="1" max="5000" value="50">
+        <small class="help">따라가기를 켰을 때만 씁니다. 많을수록 오래 걸립니다.</small>
+      </div>
+      <div class="field">
+        <label for="c-depth">몇 단계까지</label>
+        <input id="c-depth" type="number" min="0" max="16" value="2">
+        <small class="help">붙여넣은 페이지가 0단계. 거기서 몇 번 더 눌러 들어갈지입니다.</small>
+      </div>
+      <div class="field">
+        <label for="c-mode">가져오는 방식</label>
+        <select id="c-mode">
+          <option value="http">빠르게 (HTTP)</option>
+          <option value="auto">필요하면 브라우저로</option>
+          <option value="browser">항상 브라우저로</option>
+        </select>
+        <small class="help">스크립트로 그려지는 페이지는 브라우저가 필요합니다. 20~50배 느립니다.</small>
+      </div>
+      <div class="field">
+        <label for="c-interval">한 요청 간격 (ms)</label>
+        <input id="c-interval" type="number" min="0" max="60000" step="100" value="0">
+        <small class="help">상대 서버를 배려하거나 차단을 피할 때 올리세요.</small>
+      </div>
+      <div class="field">
+        <label for="c-concurrency">동시 요청</label>
+        <input id="c-concurrency" type="number" min="1" max="64" value="4">
+        <small class="help">높이면 빨라지지만 차단당하기도 쉬워집니다.</small>
+      </div>
+      <div class="field">
+        <label for="c-scroll">스크롤 횟수</label>
+        <input id="c-scroll" type="number" min="0" max="100" value="0">
+        <small class="help">브라우저 방식일 때만. 무한 스크롤 페이지에 씁니다.</small>
+      </div>
+      <div class="field wide">
+        <label for="c-include">이 주소만 (한 줄에 하나)</label>
+        <textarea id="c-include" rows="2" spellcheck="false" placeholder="/product/"></textarea>
+        <small class="help">정규식입니다. 비워두면 전부 봅니다.</small>
+      </div>
+      <div class="field wide">
+        <label for="c-exclude">이 주소는 빼고</label>
+        <textarea id="c-exclude" rows="2" spellcheck="false" placeholder="/login|/cart"></textarea>
+        <small class="help">로그인·장바구니처럼 볼 필요 없는 곳을 걸러냅니다.</small>
+      </div>
+    </div>
+  </details>
 </section>
 
 <!-- ③ 결과 -->
@@ -76,35 +140,140 @@
 
 <!-- ============================================================== 작업 -->
 <div id="view-jobs" hidden>
+
+<details class="explain" id="explain-jobs">
+  <summary>이 화면은 무엇인가요?</summary>
+  <p><strong>크롤을 큐에 넣어두고 다른 일을 하는 곳입니다.</strong> 모으기와 달리 결과가 데이터베이스에
+    남아서, 창을 닫았다 열어도 그대로 있고 중간에 멈췄다 다시 돌릴 수 있습니다.</p>
+  <p>실제로 돌리는 것은 <strong>워커</strong>입니다. <code>crwallm up</code>이 함께 띄웁니다 —
+    워커가 없으면 작업이 <strong>대기</strong>에서 움직이지 않습니다.</p>
+</details>
+
   <section class="card">
     <div class="row spread">
       <h2>새 작업</h2>
       <button id="job-new-toggle">주소로 시작하기</button>
     </div>
     <div id="job-new" hidden>
-      <div class="row">
-        <input id="job-url" type="text" placeholder="https://" autocomplete="off" spellcheck="false">
-        <input id="job-recipe" type="text" placeholder="레시피 이름 (선택)" autocomplete="off" class="narrow">
+      <div class="fields">
+        <div class="field wide">
+          <label for="job-url">시작 주소</label>
+          <input id="job-url" type="text" placeholder="https://" autocomplete="off" spellcheck="false">
+          <small class="help">여기서 출발합니다. 여러 개면 한 줄에 하나씩.</small>
+        </div>
+        <div class="field">
+          <label for="job-recipe">레시피</label>
+          <select id="job-recipe"><option value="">(없음 — 링크만 훑기)</option></select>
+          <small class="help">레시피가 있어야 무엇을 뽑을지 압니다.</small>
+        </div>
+        <div class="field">
+          <label for="job-mode">방식</label>
+          <select id="job-mode">
+            <option value="collect">모으기 — 아는 페이지에서 뽑기</option>
+            <option value="spider">훑기 — 사이트 전체를 돌기</option>
+          </select>
+          <small class="help">훑기는 sitemap을 먼저 읽고 트랩을 피해 갑니다.</small>
+        </div>
+        <div class="field">
+          <label for="job-domain">허용 도메인</label>
+          <input id="job-domain" type="text" placeholder="(주소에서 자동)" autocomplete="off" spellcheck="false">
+          <small class="help">여기 적힌 곳 밖으로는 나가지 않습니다.</small>
+        </div>
+        <div class="field">
+          <label for="job-pages">최대 쪽수</label>
+          <input id="job-pages" type="number" min="1" max="1000000" value="50">
+          <small class="help">이만큼 가져오면 멈춥니다.</small>
+        </div>
+        <div class="field">
+          <label for="job-depth">최대 단계</label>
+          <input id="job-depth" type="number" min="0" max="32" value="3">
+          <small class="help">시작 주소가 0단계입니다.</small>
+        </div>
+        <div class="field">
+          <label for="job-fetch">가져오는 방식</label>
+          <select id="job-fetch">
+            <option value="http">빠르게 (HTTP)</option>
+            <option value="auto">필요하면 브라우저로</option>
+            <option value="browser">항상 브라우저로</option>
+          </select>
+          <small class="help">auto는 뽑은 게 0건일 때만 렌더합니다.</small>
+        </div>
+        <div class="field">
+          <label for="job-priority">우선순위</label>
+          <input id="job-priority" type="number" min="-100" max="100" value="0">
+          <small class="help">높을수록 워커가 먼저 집어갑니다.</small>
+        </div>
+      </div>
+
+      <details class="advanced">
+        <summary>속도와 예의</summary>
+        <div class="fields">
+          <div class="field">
+            <label for="job-concurrency">동시 요청</label>
+            <input id="job-concurrency" type="number" min="1" max="1024" value="32">
+            <small class="help">전체 기준입니다.</small>
+          </div>
+          <div class="field">
+            <label for="job-perhost">호스트당 동시</label>
+            <input id="job-perhost" type="number" min="1" max="64" value="8">
+            <small class="help">한 사이트에 몰리지 않게 합니다.</small>
+          </div>
+          <div class="field">
+            <label for="job-interval">한 요청 간격 (ms)</label>
+            <input id="job-interval" type="number" min="0" max="60000" step="100" value="0">
+            <small class="help">차단당하면 여기를 올리세요.</small>
+          </div>
+          <div class="field">
+            <label for="job-timeout">응답 대기 (초)</label>
+            <input id="job-timeout" type="number" min="1" max="300" step="1" value="15">
+            <small class="help">이보다 느린 페이지는 실패로 칩니다.</small>
+          </div>
+          <div class="field">
+            <label for="job-scroll">스크롤 횟수</label>
+            <input id="job-scroll" type="number" min="0" max="200" value="0">
+            <small class="help">브라우저 방식일 때만.</small>
+          </div>
+          <div class="field">
+            <label class="depth" for="job-follow">
+              <input id="job-follow" type="checkbox" checked>
+              링크를 따라가기
+            </label>
+            <small class="help">끄면 시작 주소들만 봅니다. 훑기에는 필수입니다.</small>
+          </div>
+          <div class="field wide">
+            <label for="job-include">이 주소만 (한 줄에 하나)</label>
+            <textarea id="job-include" rows="2" spellcheck="false"></textarea>
+            <small class="help">정규식. 비워두면 전부.</small>
+          </div>
+          <div class="field wide">
+            <label for="job-exclude">이 주소는 빼고</label>
+            <textarea id="job-exclude" rows="2" spellcheck="false"></textarea>
+            <small class="help">가장 값싼 필터입니다 — 요청 자체를 아낍니다.</small>
+          </div>
+        </div>
+      </details>
+
+      <div class="row spread actions">
+        <p id="job-error" class="error" hidden></p>
         <button id="job-submit" class="primary">큐에 넣기</button>
       </div>
-      <div class="row spread">
-        <label class="depth">
-          <input id="job-follow" type="checkbox" checked>
-          링크를 따라가기
-        </label>
-        <label class="depth">
-          최대 쪽수
-          <input id="job-pages" type="number" min="1" max="100000" value="50" class="tiny">
-        </label>
-      </div>
-      <p id="job-error" class="error" hidden></p>
     </div>
   </section>
 
   <section class="card">
     <div class="row spread">
       <h2>최근 작업</h2>
-      <button id="jobs-refresh">새로 고침</button>
+      <div class="row">
+        <select id="jobs-filter">
+          <option value="">전체</option>
+          <option value="queued">대기</option>
+          <option value="running">진행 중</option>
+          <option value="completed">완료</option>
+          <option value="failed">실패</option>
+          <option value="cancelled">중지됨</option>
+        </select>
+        <button id="jobs-refresh">새로 고침</button>
+      </div>
     </div>
     <p id="jobs-empty" class="hint" hidden></p>
     <div class="table-wrap"><table id="jobs-table"><thead></thead><tbody></tbody></table></div>
@@ -116,26 +285,83 @@
       <div class="row">
         <button id="job-cancel">중지</button>
         <button id="job-retry">다시 실행</button>
-        <button id="job-export" class="primary">엑셀로 저장</button>
         <button id="job-close">닫기</button>
       </div>
     </div>
     <p id="job-detail-stats" class="hint"></p>
     <p id="job-detail-error" class="error" hidden></p>
-    <h3 class="feed-title">진행 상황</h3>
-    <div id="job-feed" class="feed"></div>
+
+    <div class="subtabs">
+      <button type="button" class="subtab on" data-pane="feed">진행 상황</button>
+      <button type="button" class="subtab" data-pane="records">모은 것</button>
+      <button type="button" class="subtab" data-pane="pages">가져온 쪽</button>
+      <button type="button" class="subtab" data-pane="export">내보내기</button>
+    </div>
+
+    <div id="pane-feed" class="pane">
+      <div id="job-feed" class="feed"></div>
+    </div>
+
+    <div id="pane-records" class="pane" hidden>
+      <div class="row spread">
+        <p id="records-summary" class="hint"></p>
+        <div class="row">
+          <button id="records-prev">이전</button>
+          <button id="records-next">다음</button>
+        </div>
+      </div>
+      <div class="table-wrap"><table id="records-table"><thead></thead><tbody></tbody></table></div>
+    </div>
+
+    <div id="pane-pages" class="pane" hidden>
+      <p id="pages-summary" class="hint"></p>
+      <div class="table-wrap"><table id="pages-table"><thead></thead><tbody></tbody></table></div>
+    </div>
+
+    <div id="pane-export" class="pane" hidden>
+      <div class="fields">
+        <div class="field">
+          <label for="export-format">파일 형식</label>
+          <select id="export-format">
+            <option value="csv">CSV — 엑셀에서 열기</option>
+            <option value="jsonl">JSONL — 프로그램으로 읽기</option>
+          </select>
+          <small class="help">CSV는 표, JSONL은 한 줄에 한 건입니다.</small>
+        </div>
+        <div class="field">
+          <label class="depth" for="export-source">
+            <input id="export-source" type="checkbox">
+            어느 페이지에서 나왔는지도 넣기
+          </label>
+          <small class="help">각 건의 출처 주소가 함께 들어갑니다.</small>
+        </div>
+      </div>
+      <button id="job-export" class="primary">내려받기</button>
+    </div>
   </section>
 </div>
 
 <!-- ============================================================ 레시피 -->
 <div id="view-recipes" hidden>
+
+<details class="explain" id="explain-recipes">
+  <summary>레시피가 뭔가요?</summary>
+  <p><strong>한 사이트를 한 번 이해해 둔 것입니다.</strong> 무엇이 반복되고 그 안의 어느 조각이 제목이고
+    가격인지 적어둔 파일이고, <code>recipes/</code> 폴더에 YAML로 삽니다.</p>
+  <p>만들 때는 모델이 한 번 도와줄 수 있지만, <strong>만들고 나면 모델을 부르지 않습니다.</strong>
+    10만 페이지를 돌려도 0회입니다 — 이게 이 도구의 요점입니다.</p>
+  <p><strong>동작 확인됨</strong>은 주장입니다. 옆의 숫자가 근거이고, <strong>확인</strong> 버튼으로
+    지금도 맞는지 다시 재볼 수 있습니다. 사이트가 개편되면 여기서 먼저 드러납니다.</p>
+</details>
+
   <section class="card">
     <div class="row spread">
       <h2>레시피</h2>
       <button id="recipes-refresh">새로 고침</button>
     </div>
-    <p class="hint">한 번 만들어 두면 그 사이트는 모델 없이 계속 모을 수 있습니다.
-      <strong>active</strong>는 "이게 동작한다"는 주장이고, 옆의 측정치가 그 근거입니다.</p>
+    <p class="hint">새로 만들려면 터미널에서
+      <code>crwallm recipe adapt &lt;이름&gt; --url &lt;주소&gt;</code> —
+      모델이 페이지를 보고 이름을 짓는 데 몇 분 걸리는 일이라 화면에는 두지 않았습니다.</p>
     <p id="recipes-empty" class="hint" hidden></p>
     <div class="table-wrap"><table id="recipes-table"><thead></thead><tbody></tbody></table></div>
   </section>
@@ -143,25 +369,126 @@
   <section id="recipe-detail" class="card" hidden>
     <div class="row spread">
       <h2 id="recipe-detail-title"></h2>
-      <button id="recipe-close">닫기</button>
+      <div class="row">
+        <button id="recipe-test">확인만 해보기</button>
+        <button id="recipe-activate" class="primary">확인하고 활성화</button>
+        <button id="recipe-close">닫기</button>
+      </div>
     </div>
     <p id="recipe-detail-meta" class="hint"></p>
+    <p id="recipe-detail-error" class="error" hidden></p>
+
+    <div id="recipe-report" class="report" hidden></div>
+
+    <h3>뽑는 항목</h3>
     <div class="table-wrap"><table id="recipe-fields"><thead></thead><tbody></tbody></table></div>
   </section>
 </div>
 
 <!-- ============================================================== 대화 -->
 <div id="view-chat" hidden>
+
+<details class="explain" id="explain-chat">
+  <summary>이 화면은 무엇인가요?</summary>
+  <p><strong>문장으로 시키는 곳입니다.</strong> "이 주소에서 제목이랑 가격 뽑아줘" 처럼 말하면
+    모델이 페이지를 살펴보고, 레시피를 만들고, 크롤을 큐에 넣습니다.</p>
+  <p>각 단계가 카드로 보입니다 — 무엇을 왜 했는지 확인할 수 있고, 결과는 <strong>작업</strong> 탭에
+    남습니다. 모델(Ollama)이 필요합니다.</p>
+</details>
+
   <section class="card chat-card">
     <div id="chat-log" class="chat-log">
-      <p class="hint">"https://quotes.toscrape.com/ 에서 명언이랑 작가 뽑아줘" 처럼 말해보세요.
-        모델이 페이지를 살펴보고, 레시피를 만들고, 크롤을 큐에 넣습니다.</p>
+      <p class="hint">"https://quotes.toscrape.com/ 에서 명언이랑 작가 뽑아줘" 처럼 말해보세요.</p>
     </div>
     <div class="row">
       <input id="chat-input" type="text" placeholder="무엇을 모을까요?" autocomplete="off">
       <button id="chat-send" class="primary">보내기</button>
+      <button id="chat-clear">비우기</button>
     </div>
+    <p id="chat-model" class="hint"></p>
     <p id="chat-error" class="error" hidden></p>
+  </section>
+</div>
+
+<!-- ============================================================== 설정 -->
+<div id="view-settings" hidden>
+
+<details class="explain" id="explain-settings">
+  <summary>여기서 무엇을 바꾸나요?</summary>
+  <p><strong>모델</strong>은 바로 바꿀 수 있습니다. 고르면 <code>.env</code>에 적히고, 이 창은 즉시,
+    워커는 다시 시작할 때 반영됩니다.</p>
+  <p><strong>기본값</strong>은 이 브라우저에만 저장됩니다. 모으기와 작업 화면이 열릴 때 이 값으로
+    채워집니다.</p>
+  <p><strong>서버 설정</strong>은 읽기 전용입니다. 주소·토큰·데이터베이스는 <code>.env</code>와
+    실행 인자가 정하고, 화면에서 고칠 수 있게 하면 지금 쓰고 있는 창을 스스로 잠글 수 있습니다.</p>
+</details>
+
+  <section class="card">
+    <div class="row spread">
+      <h2>모델</h2>
+      <button id="models-refresh">새로 고침</button>
+    </div>
+    <p id="models-hardware" class="hint"></p>
+    <p id="models-error" class="error" hidden></p>
+
+    <h3>설치된 것</h3>
+    <div class="table-wrap"><table id="models-table"><thead></thead><tbody></tbody></table></div>
+
+    <h3>받을 수 있는 것</h3>
+    <div class="table-wrap"><table id="models-available"><thead></thead><tbody></tbody></table></div>
+
+    <div id="pull-progress" class="pull" hidden>
+      <p id="pull-label" class="hint"></p>
+      <div class="bar"><div id="pull-bar" class="bar-fill"></div></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>기본값</h2>
+    <p class="hint">모으기와 작업 화면이 이 값으로 시작합니다. 이 브라우저에만 저장됩니다.</p>
+    <div class="fields">
+      <div class="field">
+        <label for="d-pages">최대 쪽수</label>
+        <input id="d-pages" type="number" min="1" max="1000000" value="50">
+      </div>
+      <div class="field">
+        <label for="d-depth">최대 단계</label>
+        <input id="d-depth" type="number" min="0" max="32" value="3">
+      </div>
+      <div class="field">
+        <label for="d-fetch">가져오는 방식</label>
+        <select id="d-fetch">
+          <option value="http">빠르게 (HTTP)</option>
+          <option value="auto">필요하면 브라우저로</option>
+          <option value="browser">항상 브라우저로</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="d-concurrency">동시 요청</label>
+        <input id="d-concurrency" type="number" min="1" max="1024" value="32">
+      </div>
+      <div class="field">
+        <label for="d-perhost">호스트당 동시</label>
+        <input id="d-perhost" type="number" min="1" max="64" value="8">
+      </div>
+      <div class="field">
+        <label for="d-interval">한 요청 간격 (ms)</label>
+        <input id="d-interval" type="number" min="0" max="60000" step="100" value="0">
+      </div>
+    </div>
+    <div class="row spread actions">
+      <span id="defaults-saved" class="hint"></span>
+      <div class="row">
+        <button id="defaults-reset">서버 기본값으로</button>
+        <button id="defaults-save" class="primary">저장</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>서버 설정</h2>
+    <p class="hint">읽기 전용입니다. 고치려면 <code>.env</code>를 편집하고 다시 시작하세요.</p>
+    <div class="table-wrap"><table id="settings-table"><tbody></tbody></table></div>
   </section>
 </div>
 
@@ -182,6 +509,7 @@
 <script src="jobs.js"></script>
 <script src="recipes.js"></script>
 <script src="chat.js"></script>
+<script src="settings.js"></script>
 <script src="nav.js"></script>
 </body>
 </html>

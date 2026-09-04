@@ -75,6 +75,7 @@ async function send(method, path, body) {
 const rest = {
   get: (path) => send("GET", path),
   post: (path, body) => send("POST", path, body),
+  del: (path) => send("DELETE", path),
 
   /** Server-sent events, as an async iterator of {event, data}.
    *
@@ -127,12 +128,7 @@ const rest = {
 const httpQuick = {
   look: (url) => rest.post("/api/ui/look", { sid: SID, url }),
   collect: (url, picks, options) =>
-    rest.post("/api/ui/collect", {
-      sid: SID,
-      url,
-      picks,
-      max_pages: (options && options.max_pages) || 1,
-    }),
+    rest.post("/api/ui/collect", { sid: SID, url, picks, ...(options || {}) }),
   stop: () => rest.post("/api/ui/stop", { sid: SID }),
   /* A browser has no save dialog, so the file comes back as a download and
    * the browser asks where. Same verb, same result, different machinery. */
@@ -165,4 +161,66 @@ function api() {
   if (HOST.desktop) return window.pywebview.api;
   if (HOST.served) return httpQuick;
   throw new Error("아직 준비 중입니다. 잠시 후 다시 시도해주세요.");
+}
+
+
+/* ------------------------------------------------------------- 기본값 */
+
+/*
+ * What the forms start with.
+ *
+ * Per browser, not per server: these are one person's habits - how hard they
+ * are willing to hit a site, how deep they usually go - and writing them into
+ * .env would make one person's preference everybody's configuration. The
+ * server's own defaults are the fallback, fetched once, so the two sets cannot
+ * silently disagree.
+ */
+
+const DEFAULT_KEYS = ["max_pages", "max_depth", "fetch_mode", "concurrency", "per_host", "interval_ms"];
+
+const FALLBACK = {
+  max_pages: 50,
+  max_depth: 3,
+  fetch_mode: "http",
+  concurrency: 32,
+  per_host: 8,
+  interval_ms: 0,
+};
+
+function loadDefaults() {
+  try {
+    const kept = JSON.parse(localStorage.getItem("crwallm-defaults") || "{}");
+    const out = { ...FALLBACK };
+    for (const key of DEFAULT_KEYS) {
+      if (kept[key] !== undefined && kept[key] !== null) out[key] = kept[key];
+    }
+    return out;
+  } catch {
+    return { ...FALLBACK };
+  }
+}
+
+function saveDefaults(values) {
+  try {
+    localStorage.setItem("crwallm-defaults", JSON.stringify(values));
+  } catch {
+    /* private window; the forms just start from the fallback each time */
+  }
+  Object.assign(defaults, values);
+}
+
+const defaults = loadDefaults();
+
+/** Numbers arrive from inputs as strings, and an empty box is not a zero. */
+function num(el, fallback) {
+  const value = Number(el.value);
+  return Number.isFinite(value) && el.value !== "" ? value : fallback;
+}
+
+/** One regex per line is how a person writes several. */
+function lines(el) {
+  return el.value
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
 }

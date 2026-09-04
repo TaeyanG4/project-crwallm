@@ -308,7 +308,7 @@ def build_plan(
     """Turn "these columns, this deep" into a spec the engine understands."""
     from crwallm.crawler.extraction.plan import Extraction, Field
     from crwallm.policy.domains import registrable_domain
-    from crwallm.schemas.spec import CrawlLimits, CrawlSpec
+    from crwallm.schemas.spec import BrowserConfig, CrawlLimits, CrawlSpec, UrlFilters
     from crwallm.schemas.types import CrawlMode
 
     by_index = {int(c["index"]): c for c in looked["columns"]}
@@ -328,19 +328,64 @@ def build_plan(
     host = urlsplit(url).hostname or ""
     domain = registrable_domain(host) or host
 
-    # "몇 페이지까지" is the only knob offered, and it maps to following links
-    # at all. A person asking for one page means the page they pasted.
+    # One page means the page you pasted, so following links is derived rather
+    # than asked for separately - two controls that can contradict each other
+    # is one control too many.
     pages = max(1, int(options.get("max_pages", 1)))
-    follow = pages > 1
+    follow = bool(options.get("follow_links", pages > 1))
+
+    limits = CrawlLimits(
+        max_pages=pages,
+        max_depth=int(options.get("max_depth", 2 if follow else 0)),
+        global_concurrency=int(options.get("concurrency", 4)),
+        per_host_concurrency=int(options.get("per_host", 4)),
+        min_interval_ms=int(options.get("interval_ms", 0)),
+        request_timeout_s=float(options.get("timeout_s", CrawlLimits().request_timeout_s)),
+    )
 
     spec = CrawlSpec(
         seed_urls=(url,),
         allowed_domains=(domain,) if domain else (),
         mode=CrawlMode.COLLECT,
+        # HTTP unless asked otherwise. `auto` renders only when extraction came
+        # back empty, which costs nothing on a page that did not need it - but
+        # it needs Chromium, and the packaged build has none.
+        fetch_mode=_fetch_mode(options.get("fetch_mode")),
         follow_links=follow,
-        limits=CrawlLimits(max_pages=pages, max_depth=2 if follow else 0, global_concurrency=4),
+        limits=limits,
+        browser=BrowserConfig(
+            scroll_rounds=int(options.get("scroll_rounds", 0)),
+            scroll_pause_ms=int(options.get("scroll_pause_ms", BrowserConfig().scroll_pause_ms)),
+        ),
+        url_filters=UrlFilters(
+            include=tuple(_patterns(options.get("include"))),
+            exclude=tuple(_patterns(options.get("exclude"))),
+        ),
     )
     return spec, Extraction(container=looked["container"], fields=fields, follow_links=follow)
+
+
+def _fetch_mode(value: Any) -> Any:
+    from crwallm.schemas.types import FetchMode
+
+    try:
+        return FetchMode(str(value or "http"))
+    except ValueError:
+        # A front end sending nonsense should not take the crawl down, and
+        # HTTP is the choice that always works.
+        return FetchMode.HTTP
+
+
+def _patterns(value: Any) -> list[str]:
+    """Regexes, from a textarea or a list.
+
+    One per line is how a person writes several of them; a list is how JSON
+    sends them. Blank lines are what pressing Enter leaves behind.
+    """
+    if not value:
+        return []
+    lines = value.splitlines() if isinstance(value, str) else list(value)
+    return [line.strip() for line in lines if str(line).strip()]
 
 
 def columns_of(usable: Any) -> list[dict[str, Any]]:

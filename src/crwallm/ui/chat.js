@@ -68,10 +68,9 @@ async function sendChat() {
   $("chat-send").disabled = true;
   saySelf(message);
 
-  // Cleared on the first send so the placeholder does not sit above the
-  // conversation forever.
-  const placeholder = $("chat-log").querySelector(".hint");
-  if (placeholder) placeholder.remove();
+  // Taken off screen on the first send so it does not sit above the
+  // conversation forever - removed, not destroyed, because 비우기 puts it back.
+  if (CHAT_PLACEHOLDER && CHAT_PLACEHOLDER.isConnected) CHAT_PLACEHOLDER.remove();
 
   const open = new Map(); // action -> its card, so finishing updates in place
   let answered = false;
@@ -130,4 +129,21 @@ function modelError(text) {
 $("chat-send").addEventListener("click", sendChat);
 $("chat-input").addEventListener("keydown", (e) => {
   if (e.key === "Enter") sendChat();
+});
+
+
+/* Kept rather than rebuilt. Writing the sentence here as well would put the
+ * same text in two files, and the copy in the script is the one that goes
+ * stale - so the original node is parked and put back. */
+const CHAT_PLACEHOLDER = $("chat-log").querySelector(".hint");
+
+$("chat-clear").addEventListener("click", () => {
+  // The transcript is the only state this view has, and it is also what the
+  // server is told about the past - clearing the screen has to clear that too,
+  // or the next turn carries a conversation nobody can see.
+  chatState.history = [];
+  const log = $("chat-log");
+  log.replaceChildren();
+  if (CHAT_PLACEHOLDER) log.append(CHAT_PLACEHOLDER);
+  $("chat-error").hidden = true;
 });

@@ -15,6 +15,8 @@ window has actually broken or could break silently.
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -26,7 +28,7 @@ UI = Path(__file__).resolve().parents[2] / "src" / "crwallm" / "ui"
 HTML = (UI / "index.html").read_text(encoding="utf-8")
 CSS = (UI / "style.css").read_text(encoding="utf-8")
 
-SCRIPTS = ("api.js", "app.js", "jobs.js", "recipes.js", "chat.js", "nav.js")
+SCRIPTS = ("api.js", "app.js", "jobs.js", "recipes.js", "chat.js", "settings.js", "nav.js")
 """Every script the page loads.
 
 Derived from the page rather than listed, below, so a new file that is added
@@ -155,6 +157,26 @@ def test_every_colour_lives_in_one_block() -> None:
         f"colours outside :root: {sorted(set(literals))}. "
         "Give each one a token, or the next theme change leaves it behind."
     )
+
+
+@pytest.mark.parametrize("name", SCRIPTS)
+def test_each_script_parses(name: str) -> None:
+    """A syntax error in any of these is a blank screen and nothing else.
+
+    The browser stops at the broken file, every later script never runs, and
+    the page still renders its HTML - so it looks finished and does nothing.
+    That happened: one collapsed backslash turned a string literal into an
+    unterminated one, and the only symptom was tabs that did not switch.
+
+    Skipped rather than failed when Node is absent: this is a real check when
+    it can run, and not a reason to fail a suite on a machine without it.
+    """
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed; cannot parse JavaScript here")
+
+    result = subprocess.run([node, "--check", str(UI / name)], capture_output=True, text=True)
+    assert result.returncode == 0, f"{name} does not parse:\n{result.stderr}"
 
 
 def without_comments(source: str) -> str:

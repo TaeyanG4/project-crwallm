@@ -23,7 +23,7 @@ import asyncio
 import tempfile
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
@@ -79,10 +79,35 @@ class Pick(BaseModel):
 
 
 class CollectIn(BaseModel):
+    """Everything the picker can ask for.
+
+    Bounded here rather than trusted: these come from a page, and the engine's
+    own ceilings are a long way above what a person should be able to start by
+    accident from a browser. ``max_pages`` in particular - the CLI will happily
+    take a million, and a screen should not.
+    """
+
     sid: str = Field(min_length=1, max_length=64)
     url: str = Field(max_length=2048)
     picks: list[Pick] = Field(default_factory=list, max_length=64)
-    max_pages: int = Field(default=1, ge=1, le=500)
+
+    max_pages: int = Field(default=1, ge=1, le=5000)
+    max_depth: int | None = Field(default=None, ge=0, le=16)
+    fetch_mode: Literal["http", "auto", "browser"] = "http"
+    concurrency: int = Field(default=4, ge=1, le=64)
+    per_host: int = Field(default=4, ge=1, le=32)
+    interval_ms: int = Field(default=0, ge=0, le=60_000)
+    scroll_rounds: int = Field(default=0, ge=0, le=100)
+    include: list[str] = Field(default_factory=list, max_length=20)
+    exclude: list[str] = Field(default_factory=list, max_length=20)
+
+    def options(self) -> dict[str, Any]:
+        chosen = self.model_dump(exclude={"sid", "url", "picks"})
+        if chosen.get("max_depth") is None:
+            # Absent means "whatever following implies", which build_plan
+            # decides. Sending None through would override that with nothing.
+            chosen.pop("max_depth")
+        return chosen
 
 
 class SidIn(BaseModel):
@@ -121,7 +146,7 @@ async def collect(body: CollectIn) -> dict[str, Any]:
         result = await quick.collect(
             url,
             chosen,
-            {"max_pages": body.max_pages},
+            body.options(),
             guard=build_guard(),
             cancel=entry.cancel,
         )
