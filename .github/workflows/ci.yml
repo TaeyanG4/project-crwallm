@@ -42,19 +42,39 @@ jobs:
         with:
           enable-cache: true
 
+      # `uv sync`, not `uv pip install --system`. The runner's system Python is
+      # externally managed (PEP 668) and refuses installs into it, which is how
+      # this job failed eleven times in a row without the workflow changing -
+      # the image moved underneath it. `uv sync` also builds the same
+      # environment the README tells a person to build, so a green run here
+      # means the documented install works.
       - name: Install
-        run: uv pip install --system -e ".[dev]"
+        run: uv sync --extra dev
+
+      # The browser tests skip on a missing *import*, and playwright is a
+      # declared dependency - so without this they would not skip, they would
+      # fail launching a Chromium that was never downloaded. It is the one step
+      # here that costs real time, and it buys the whole Phase 7 render path.
+      - name: Install Chromium
+        run: uv run python -m playwright install --with-deps chromium
 
       - name: Lint
         run: |
-          ruff check .
-          ruff format --check .
+          uv run ruff check .
+          uv run ruff format --check .
 
       - name: Type check
-        run: mypy src
+        run: uv run mypy src
+
+      # Before the tests, not after. CRWALLM_DATABASE_URL and
+      # CRWALLM_TEST_DATABASE_URL are the same database here, and the job
+      # tests build their schema with metadata.create_all - so running alembic
+      # afterwards met tables it had not made and no alembic_version row, and
+      # died on `relation "crawl_specs" already exists`. Reproduced locally
+      # both ways before moving it. This order is also what the step claims to
+      # check: that the migrations apply to an empty database.
+      - name: Migrations apply cleanly
+        run: uv run alembic upgrade head
 
       - name: Test
-        run: pytest
-
-      - name: Migrations apply cleanly
-        run: alembic upgrade head
+        run: uv run pytest

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ipaddress
 from collections.abc import AsyncIterator, Iterator
+from pathlib import Path
 
 import pytest
 
@@ -29,22 +30,37 @@ from crwallm.policy.url import normalize
 from crwallm.schemas.types import ErrorKind, FetchMode
 from tests.fixtures.malicious_server.server import MaliciousServer, RunningServer
 
-pytestmark = pytest.mark.integration
-
 LOOPBACK = [ipaddress.ip_network("127.0.0.0/8")]
 
 
-def playwright_available() -> bool:
+def chromium_available() -> bool:
+    """Whether a browser can actually be launched here.
+
+    The import is not the question. ``playwright`` is a declared dependency, so
+    it is always importable, while the browser binary is a separate download
+    (``python -m playwright install chromium``) that a fresh checkout does not
+    have. Checking the import meant these never skipped and always failed -
+    with "Executable doesn't exist", after a reason that said the package was
+    missing.
+    """
     try:
-        import playwright.async_api  # noqa: F401
+        from playwright.sync_api import sync_playwright
     except ImportError:
         return False
-    return True
+
+    try:
+        with sync_playwright() as pw:
+            return Path(pw.chromium.executable_path).exists()
+    except Exception:
+        return False
 
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.skipif(not playwright_available(), reason="playwright is not installed"),
+    pytest.mark.skipif(
+        not chromium_available(),
+        reason="Chromium is not installed - run: python -m playwright install chromium",
+    ),
 ]
 
 

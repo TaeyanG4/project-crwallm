@@ -81,9 +81,7 @@ def png(size: int) -> bytes:
             raw.extend(pixel(px, py, size))
 
     def chunk(tag: bytes, body: bytes) -> bytes:
-        return (
-            struct.pack(">I", len(body)) + tag + body + struct.pack(">I", zlib.crc32(tag + body))
-        )
+        return struct.pack(">I", len(body)) + tag + body + struct.pack(">I", zlib.crc32(tag + body))
 
     return (
         b"\x89PNG\r\n\x1a\n"
