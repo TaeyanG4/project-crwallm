@@ -16,6 +16,7 @@ import os
 import re
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -88,11 +89,18 @@ def test_every_flag_the_readme_names_exists() -> None:
         flags = [w for w in words if w.startswith("--")]
         if not command or not flags:
             continue
-        _, help_text = cli(*command, "--help")
+        code, help_text = cli(*command, "--help")
         for flag in flags:
             if flag not in help_text:
-                wrong.append(f"{' '.join(command)} {flag}")
-    assert not wrong, f"README names flags their command does not have: {wrong}"
+                # Carry what was seen, not just the name. A bare list cannot
+                # tell "the flag was renamed" from "the help rendered
+                # differently on this machine", and guessing between those from
+                # a developer's terminal has already cost two CI runs.
+                wrong.append(
+                    f"{' '.join(command)} {flag}  (exit={code}, COLUMNS={ENV.get('COLUMNS')})\n"
+                    + textwrap.indent(help_text.strip() or "<no output>", "      ")
+                )
+    assert not wrong, "README names flags their command does not have:\n" + "\n".join(wrong)
 
 
 @pytest.mark.parametrize(
