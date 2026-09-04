@@ -27,13 +27,23 @@ README = (ROOT / "README.md").read_text(encoding="utf-8")
 ENV = {
     **os.environ,
     "PYTHONIOENCODING": "utf-8",
-    # Wide, on purpose. Typer renders its help through rich, which fits the
-    # output to the terminal and *truncates* what does not fit - at 40 columns
-    # `--no-browser` is drawn as `--no-br…`, and a substring check on that says
-    # the flag does not exist. CI has no TTY and picked a width narrow enough
-    # to do it, so this passed on a developer's terminal and failed there.
+    # Wide, on purpose. Rich fits its output to the terminal and *truncates*
+    # what does not fit - at 40 columns `--no-browser` is drawn as `--no-br…`,
+    # and a substring check on that says the flag does not exist. Measured
+    # across 40/50/60/70/80: the names survive from 50 up. This is a second
+    # failure mode from the ANSI one above, and both have to be handled.
     "COLUMNS": "200",
 }
+
+
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+"""Styling, which rich puts *inside* the words.
+
+It colours the leading dash separately from the rest, so ``--no-browser`` is
+written as ``ESC[1;35m-ESC[0mESC[1;35m-noESC[0mESC[1;35m-browserESC[0m`` and
+the literal string never appears. GitHub Actions sets CI, rich forces colour
+on, and a developer's pipe does not - which is exactly why this check passed
+here and failed there, twice, while two other theories were tried."""
 
 
 def cli(*args: str) -> tuple[int, str]:
@@ -47,7 +57,7 @@ def cli(*args: str) -> tuple[int, str]:
     result = subprocess.run(
         [sys.executable, "-m", "crwallm.cli.main", *args], capture_output=True, env=ENV
     )
-    return result.returncode, result.stdout.decode("utf-8", errors="replace")
+    return result.returncode, ANSI.sub("", result.stdout.decode("utf-8", errors="replace"))
 
 
 def named_commands() -> set[tuple[str, ...]]:
