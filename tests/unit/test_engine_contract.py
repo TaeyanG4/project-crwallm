@@ -123,23 +123,41 @@ class TestCancellation:
         Breaking out of an ``async for`` leaves the generator suspended; async
         generators are finalised by the loop's hooks at collection time, not at
         ``break``. The crawl keeps running and the caller cannot tell.
+
+        The generator is held in a local and checked immediately. The first
+        version dropped the reference and slept, which handed the collector the
+        very window the claim is about: on Linux it ran the finaliser inside
+        that sleep and the assertion failed, on Windows it did not and the test
+        passed. Both were describing garbage-collection timing rather than the
+        contract, and the contract is that ``break`` alone tears nothing down.
         """
         pump = EventPump()
+        ran = 0
 
         async def forever() -> None:
+            nonlocal ran
             while True:
-                await pump.emit(progress(0))
+                ran += 1
+                await pump.emit(progress(ran))
 
         pump.spawn(forever())
 
-        async for _ in pump.stream():
+        stream = pump.stream()
+        async for _ in stream:
             break
 
-        await asyncio.sleep(0.01)
         assert pump.active_workers == 1, (
             "bare break now tears down - if this became true on purpose, "
             "update the adapters and this test together"
         )
+
+        # And the worker is not merely alive, it is still crawling - which is
+        # the half of the trap that costs somebody a bill.
+        checkpoint = ran
+        await asyncio.sleep(0.02)
+        assert ran > checkpoint, "worker stopped without anyone closing the stream"
+
+        await stream.aclose()
         await pump.aclose()
 
     async def test_explicit_aclose_is_idempotent(self) -> None:

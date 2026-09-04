@@ -23,7 +23,16 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 README = (ROOT / "README.md").read_text(encoding="utf-8")
 
-ENV = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+ENV = {
+    **os.environ,
+    "PYTHONIOENCODING": "utf-8",
+    # Wide, on purpose. Typer renders its help through rich, which fits the
+    # output to the terminal and *truncates* what does not fit - at 40 columns
+    # `--no-browser` is drawn as `--no-br…`, and a substring check on that says
+    # the flag does not exist. CI has no TTY and picked a width narrow enough
+    # to do it, so this passed on a developer's terminal and failed there.
+    "COLUMNS": "200",
+}
 
 
 def cli(*args: str) -> tuple[int, str]:
