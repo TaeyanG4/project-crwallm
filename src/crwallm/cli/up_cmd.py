@@ -91,17 +91,24 @@ class Supervisor:
         """
         if self._job is None:
             return
-        with contextlib.suppress(Exception):
-            import ctypes
 
-            handle = ctypes.windll.kernel32.OpenProcess(
-                0x001F0FFF,  # PROCESS_ALL_ACCESS
-                False,
-                child.pid,
-            )
-            if handle:
-                ctypes.windll.kernel32.AssignProcessToJobObject(self._job, handle)
-                ctypes.windll.kernel32.CloseHandle(handle)
+        # The platform test is for the type checker as much as for the
+        # runtime: `self._job is None` everywhere but Windows is an invariant
+        # held in _make_kill_on_close_job, and mypy cannot see it from here.
+        # Checking sys.platform lets it narrow the branch away on Linux, where
+        # ctypes has no `windll` at all.
+        if sys.platform == "win32":
+            with contextlib.suppress(Exception):
+                import ctypes
+
+                handle = ctypes.windll.kernel32.OpenProcess(
+                    0x001F0FFF,  # PROCESS_ALL_ACCESS
+                    False,
+                    child.pid,
+                )
+                if handle:
+                    ctypes.windll.kernel32.AssignProcessToJobObject(self._job, handle)
+                    ctypes.windll.kernel32.CloseHandle(handle)
 
     def start(self, name: str, argv: list[str], *, cwd: Path | None = None) -> None:
         # Deliberately *not* CREATE_NEW_PROCESS_GROUP. That was the first
@@ -170,60 +177,65 @@ def _make_kill_on_close_job() -> int | None:
     Returns None everywhere else: on POSIX the children share this process's
     group and a terminal's Ctrl-C reaches them directly, so there is nothing
     to arrange.
+
+    Written as a positive platform test rather than an early return. mypy
+    narrows sys.platform per target, so `if sys.platform != "win32": return`
+    makes this whole body unreachable on Linux - warn_unreachable then fails
+    the build, and ctypes.windll is an attribute error on lines it has just
+    said can never run. Inside the positive branch it narrows the branch away
+    instead and says nothing.
     """
-    if sys.platform != "win32":
-        return None
+    if sys.platform == "win32":
+        with contextlib.suppress(Exception):
+            import ctypes
+            from ctypes import wintypes
 
-    with contextlib.suppress(Exception):
-        import ctypes
-        from ctypes import wintypes
+            class _LimitInformation(ctypes.Structure):
+                _fields_ = [
+                    ("PerProcessUserTimeLimit", ctypes.c_int64),
+                    ("PerJobUserTimeLimit", ctypes.c_int64),
+                    ("LimitFlags", wintypes.DWORD),
+                    ("MinimumWorkingSetSize", ctypes.c_size_t),
+                    ("MaximumWorkingSetSize", ctypes.c_size_t),
+                    ("ActiveProcessLimit", wintypes.DWORD),
+                    ("Affinity", ctypes.POINTER(ctypes.c_ulong)),
+                    ("PriorityClass", wintypes.DWORD),
+                    ("SchedulingClass", wintypes.DWORD),
+                ]
 
-        class _LimitInformation(ctypes.Structure):
-            _fields_ = [
-                ("PerProcessUserTimeLimit", ctypes.c_int64),
-                ("PerJobUserTimeLimit", ctypes.c_int64),
-                ("LimitFlags", wintypes.DWORD),
-                ("MinimumWorkingSetSize", ctypes.c_size_t),
-                ("MaximumWorkingSetSize", ctypes.c_size_t),
-                ("ActiveProcessLimit", wintypes.DWORD),
-                ("Affinity", ctypes.POINTER(ctypes.c_ulong)),
-                ("PriorityClass", wintypes.DWORD),
-                ("SchedulingClass", wintypes.DWORD),
-            ]
+            class _IoCounters(ctypes.Structure):
+                _fields_ = [
+                    (name, ctypes.c_uint64)
+                    for name in (
+                        "ReadOperationCount",
+                        "WriteOperationCount",
+                        "OtherOperationCount",
+                        "ReadTransferCount",
+                        "WriteTransferCount",
+                        "OtherTransferCount",
+                    )
+                ]
 
-        class _IoCounters(ctypes.Structure):
-            _fields_ = [
-                (name, ctypes.c_uint64)
-                for name in (
-                    "ReadOperationCount",
-                    "WriteOperationCount",
-                    "OtherOperationCount",
-                    "ReadTransferCount",
-                    "WriteTransferCount",
-                    "OtherTransferCount",
-                )
-            ]
+            class _ExtendedLimit(ctypes.Structure):
+                _fields_ = [
+                    ("BasicLimitInformation", _LimitInformation),
+                    ("IoInfo", _IoCounters),
+                    ("ProcessMemoryLimit", ctypes.c_size_t),
+                    ("JobMemoryLimit", ctypes.c_size_t),
+                    ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                    ("PeakJobMemoryUsed", ctypes.c_size_t),
+                ]
 
-        class _ExtendedLimit(ctypes.Structure):
-            _fields_ = [
-                ("BasicLimitInformation", _LimitInformation),
-                ("IoInfo", _IoCounters),
-                ("ProcessMemoryLimit", ctypes.c_size_t),
-                ("JobMemoryLimit", ctypes.c_size_t),
-                ("PeakProcessMemoryUsed", ctypes.c_size_t),
-                ("PeakJobMemoryUsed", ctypes.c_size_t),
-            ]
+            job = ctypes.windll.kernel32.CreateJobObjectW(None, None)
+            if not job:
+                return None
 
-        job = ctypes.windll.kernel32.CreateJobObjectW(None, None)
-        if not job:
-            return None
-
-        limits = _ExtendedLimit()
-        limits.BasicLimitInformation.LimitFlags = 0x2000  # KILL_ON_JOB_CLOSE
-        ctypes.windll.kernel32.SetInformationJobObject(
-            job, 9, ctypes.byref(limits), ctypes.sizeof(limits)
-        )
-        return int(job)
+            limits = _ExtendedLimit()
+            limits.BasicLimitInformation.LimitFlags = 0x2000  # KILL_ON_JOB_CLOSE
+            ctypes.windll.kernel32.SetInformationJobObject(
+                job, 9, ctypes.byref(limits), ctypes.sizeof(limits)
+            )
+            return int(job)
     return None
 
 
